@@ -138,11 +138,18 @@ logs/            - timestamped log files
 
 Agents do all JIRA analysis and write JSON output files. Python reads those files and handles all Slack I/O. Agents never post to Slack directly.
 
+## User map
+
+The bot maintains a `user_map` in `state.json` that maps JIRA display names to accountIds. This is used for proper JIRA @mentions in comments (ADF format) so assignees actually get notified.
+
+It is seeded on first run with the core team and grows automatically - every monitor run extracts accountIds from ticket assignee fields and merges them in. No manual maintenance needed.
+
 ## State
 
 `state/state.json` persists:
 - Known ticket states (status, assignee, last updated, sprint state, blocker keys)
 - Pending drafts awaiting approval
 - Last run timestamps
+- User map (displayName to accountId)
 
-Delete `state/state.json` to force a full re-evaluation on next run.
+Delete `state/state.json` to force a full re-evaluation on next run. The user map will be re-seeded with the core team on startup and rebuilt from JIRA data automatically.

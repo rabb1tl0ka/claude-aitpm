@@ -260,8 +260,13 @@ Full file structure:
       "blocker_keys": ["<list of ticket keys blocking this ticket, empty if none>"],
       "sprint_state": "<active|future|closed|none>"
     }}
+  }},
+  "user_map": {{
+    "<displayName>": "<accountId>"
   }}
 }}
+
+For `user_map`: extract the `displayName` and `accountId` from every assignee field you encounter across all tickets. Include all of them — this builds a local cache of JIRA users automatically.
 
 ## Rules
 - No em dashes in writing
@@ -406,15 +411,28 @@ Respond as you would in a full Claude Code session — you have complete project
     return None
 
 
-async def run_jira_comment(ticket_key: str, comment_text: str) -> bool:
+async def run_jira_comment(ticket_key: str, comment_text: str, user_map: dict | None = None) -> bool:
     """Post an approved comment to a JIRA ticket. Returns True on success."""
+    user_map_info = ""
+    if user_map:
+        entries = "\n".join(f"  {name}: {account_id}" for name, account_id in user_map.items())
+        user_map_info = f"""
+## User map (displayName -> accountId)
+Use these accountIds for proper JIRA @mentions in ADF format:
+{entries}
+
+For mentions, use ADF format:
+{{"type": "mention", "attrs": {{"id": "<accountId>", "text": "@DisplayName"}}}}
+"""
+
     prompt = f"""Post the following comment to JIRA ticket {ticket_key}.
 
 Comment text:
 {comment_text}
-
+{user_map_info}
 Use `mcp__cloudsort-jira__addCommentToJiraIssue` directly. Do NOT call getAccessibleAtlassianResources first.
 The cloudId is: cloudsort.atlassian.net
+If the comment contains @mentions, use proper ADF mention nodes with the accountIds from the user map above.
 """
     try:
         await _run(prompt, _JIRA_COMMENT_TOOLS, model="haiku", max_turns=3, label="jira-comment")
@@ -436,5 +454,5 @@ def run_command_sync(cfg: dict, state: dict, command_text: str) -> dict | None:
     return asyncio.run(run_command(cfg, state, command_text))
 
 
-def run_jira_comment_sync(ticket_key: str, comment_text: str) -> bool:
-    return asyncio.run(run_jira_comment(ticket_key, comment_text))
+def run_jira_comment_sync(ticket_key: str, comment_text: str, user_map: dict | None = None) -> bool:
+    return asyncio.run(run_jira_comment(ticket_key, comment_text, user_map))

@@ -82,6 +82,11 @@ def run_monitor(cfg: dict, state: dict, run_type: str, log: logging.Logger) -> N
 
     # Update ticket states
     state["ticket_states"] = output.get("ticket_states", state.get("ticket_states", {}))
+
+    # Merge any newly discovered users into the user map
+    new_users = output.get("user_map", {})
+    if new_users:
+        state.setdefault("user_map", {}).update(new_users)
     state["last_monitor_run"] = output.get("run_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     state["channel_id"] = channel_id
 
@@ -169,7 +174,7 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
                 comment_text = draft["draft_text"]
                 if "Proposed comment:" in comment_text:
                     comment_text = comment_text.split("Proposed comment:")[-1].strip()
-                success = run_jira_comment_sync(ticket_key, comment_text)
+                success = run_jira_comment_sync(ticket_key, comment_text, state.get("user_map"))
                 if success:
                     post_message(aitpm_channel, f"✅ Comment posted on {ticket_key}", thread_ts=slack_ts)
                 else:
@@ -224,7 +229,7 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
                 comment_text = draft["draft_text"]
                 if "Proposed comment:" in comment_text:
                     comment_text = comment_text.split("Proposed comment:")[-1].strip()
-                success = run_jira_comment_sync(ticket_key, comment_text)
+                success = run_jira_comment_sync(ticket_key, comment_text, state.get("user_map"))
                 if success:
                     post_message(aitpm_channel, f"✅ Comment posted on {ticket_key}", thread_ts=slack_ts)
                 else:
