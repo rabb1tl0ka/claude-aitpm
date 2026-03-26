@@ -1,0 +1,4 @@
+python-dotenv
+pyyaml
+claude-agent-sdk
+slack_sdk

@@ -1,0 +1,28 @@
+project_name: CloudSort
+owner_slack_user_id: ""  # your Slack user ID (e.g. U02GXNG41GE) Find it in Slack: click your name → View profile → More (three dots) → Copy member ID.
+jira_project_key: CLOUD
+jira_radar_file: ~/loka/vaults/loka2026/projects/cloudsort/jb/jb-watching-radar.md
+staleness_thresholds:
+  P1: 1
+  P2: 2
+  P3: 4
+  P4: null
+slack_aitpm_channel: "#cloudsort_aitpm"
+slack_channels:
+  general: "#cloudsort_chat"
+  backend: "#cloudsort_backend"
+  webapp: "#cloudsort_webapp"
+  design: "#cloudsort_design"
+
+# Sprint info — update manually each sprint
+sprint:
+  name: ""
+  start: ""
+  end: ""
+
+schedule:
+  monitor_interval_min: 60
+  approval_interval_min: 1
+  timezone: "Europe/Lisbon"
+  work_hours_start: 8
+  work_hours_end: 21
