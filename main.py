@@ -23,8 +23,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.config import load_config, get_project_dir
-from src.state import load_state, save_state
-from src.agents import run_monitor_sync, run_revision_sync, run_command_sync, run_jira_comment_sync
+from src.state import load_state, save_state, update_slack_cursors, load_epic_cache, save_epic_cache
+from src.agents import run_monitor_sync, run_nudge_drafter_sync, run_revision_sync, run_command_sync, run_jira_comment_sync
 from src.slack_client import (
     post_message, add_reaction, get_channel_history,
     get_thread_replies, get_message_reactions, is_bot_message, is_bot_mention, detect_intent,
@@ -59,15 +59,26 @@ def setup_logging() -> logging.Logger:
 # Monitor: run agent → read output → post drafts to Slack
 # ---------------------------------------------------------------------------
 
-def run_monitor(cfg: dict, state: dict, run_type: str, log: logging.Logger) -> None:
+def run_monitor(cfg: dict, state: dict, run_type: str, log: logging.Logger, refresh_cache: bool = False) -> None:
     project_dir = get_project_dir()
     output_file = os.path.join(project_dir, "state", "monitor_output.json")
+
+    # Load epic cache — None if missing or refresh forced
+    epic_cache = None if refresh_cache else load_epic_cache(project_dir)
+    if epic_cache:
+        log.info(f"[monitor] Epic cache hit: {len(epic_cache)} epics. Skipping Step 1 fetch.")
+    else:
+        reason = "--refresh-cache" if refresh_cache else "no cache"
+        log.info(f"[monitor] Epic cache miss ({reason}). Step 1 will fetch fresh.")
+
+    is_full_fetch = run_type == "digest" or refresh_cache or state.get("last_monitor_run") is None or epic_cache is None
+    log.info(f"[monitor] Fetch mode: {'FULL' if is_full_fetch else 'INCREMENTAL'}")
 
     # Clean up previous output
     if os.path.isfile(output_file):
         os.remove(output_file)
 
-    run_monitor_sync(cfg, state, run_type)
+    run_monitor_sync(cfg, state, run_type, epic_cache=epic_cache, is_full_fetch=is_full_fetch)
 
     if not os.path.isfile(output_file):
         log.warning(f"[monitor] Agent finished but no output file found.")
@@ -76,6 +87,25 @@ def run_monitor(cfg: dict, state: dict, run_type: str, log: logging.Logger) -> N
     with open(output_file) as f:
         output = json.load(f)
     os.remove(output_file)
+
+    # Phase 2: nudge drafter — only runs when stale tickets exist
+    pending_nudges = output.get("pending_nudges", [])
+    if pending_nudges:
+        nudge_output_file = os.path.join(project_dir, "state", "nudge_output.json")
+        if os.path.isfile(nudge_output_file):
+            os.remove(nudge_output_file)
+        run_nudge_drafter_sync(cfg, state, pending_nudges)
+        if os.path.isfile(nudge_output_file):
+            with open(nudge_output_file) as f:
+                nudge_output = json.load(f)
+            os.remove(nudge_output_file)
+            output.setdefault("posts", []).extend(nudge_output.get("posts", []))
+            new_cursors = nudge_output.get("slack_cursors", {})
+            if new_cursors:
+                update_slack_cursors(state, new_cursors)
+                log.info(f"[monitor] Slack cursors updated for {len(new_cursors)} channel(s).")
+        else:
+            log.warning("[monitor] Nudge drafter finished but no output file found.")
 
     aitpm_channel = cfg["slack_aitpm_channel"]
     channel_id = resolve_channel(aitpm_channel)
@@ -358,6 +388,12 @@ def main():
         choices=["monitor", "digest", "poll"],
         help="Run once and exit",
     )
+    parser.add_argument(
+        "--refresh-cache",
+        action="store_true",
+        default=False,
+        help="Force re-fetch of epic keys and full ticket fetch, ignoring cache",
+    )
     args = parser.parse_args()
 
     log = setup_logging()
@@ -372,7 +408,7 @@ def main():
             run_approval_poll(cfg, state, log)
             run_inbound_check(cfg, state, log)
         else:
-            run_monitor(cfg, state, run_type=args.once, log=log)
+            run_monitor(cfg, state, run_type=args.once, log=log, refresh_cache=args.refresh_cache)
         log.info("Done.")
         return
 

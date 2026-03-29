@@ -2,6 +2,7 @@
 
 import json
 import os
+from datetime import datetime, timezone, timedelta
 
 
 def _state_path(project_dir: str) -> str:
@@ -20,6 +21,7 @@ def load_state(project_dir: str) -> dict:
         "last_inbound_check": None,
         "pending_drafts": [],
         "ticket_states": {},
+        "slack_cursors": {},
         "user_map": {
             "Zoran Grbusic": "5bb78e559ba2930990f81b6b",
             "elena.gramatikovska": "633846019b32cfef93282f21",
@@ -41,3 +43,38 @@ def save_state(project_dir: str, state: dict) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(state, f, indent=2)
+
+
+def get_slack_oldest(state: dict, channel_id: str) -> str:
+    """Return the Slack timestamp to read from. Defaults to 14 days ago on first run."""
+    cursors = state.get("slack_cursors", {})
+    if channel_id in cursors:
+        return cursors[channel_id]
+    oldest = datetime.now(timezone.utc) - timedelta(days=14)
+    return str(oldest.timestamp())
+
+
+def update_slack_cursors(state: dict, updates: dict) -> None:
+    """Merge new channel cursor timestamps into state."""
+    state.setdefault("slack_cursors", {}).update(updates)
+
+
+def _epic_cache_path(project_dir: str) -> str:
+    return os.path.join(project_dir, "state", "epic_cache.json")
+
+
+def load_epic_cache(project_dir: str) -> list | None:
+    """Return cached epic keys, or None if no cache exists."""
+    path = _epic_cache_path(project_dir)
+    if os.path.isfile(path):
+        with open(path) as f:
+            data = json.load(f)
+        return data.get("epic_keys")
+    return None
+
+
+def save_epic_cache(project_dir: str, epic_keys: list) -> None:
+    path = _epic_cache_path(project_dir)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"epic_keys": epic_keys, "cached_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, f, indent=2)
