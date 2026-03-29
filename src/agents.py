@@ -18,6 +18,7 @@ PROJECT_DIR = str(Path(__file__).parent.parent)
 _MONITOR_TOOLS = [
     "mcp__cloudsort-jira__searchJiraIssuesUsingJql",
     "mcp__cloudsort-jira__getJiraIssue",
+    "Bash",
     "Read",
     "Write",
 ]
@@ -140,15 +141,85 @@ This is a {run_label} run. Your output will be posted to Slack by the Python run
 ---
 
 ## Step 1: Fetch watched epics dynamically
-Use `mcp__cloudsort-jira__searchJiraIssuesUsingJql` directly — do NOT call getAccessibleAtlassianResources first.
-Run the Step 1 JQL from the radar file to get the current list of watched epics. Extract the epic keys from the results.
+Use Bash to fetch epic keys via the Jira REST API. Read credentials from {PROJECT_DIR}/.env.
+Write and run this Python script:
+
+```bash
+set -a && source {PROJECT_DIR}/.env && set +a && python3 << 'PYEOF'
+import urllib.request, urllib.error, json, os, base64
+
+email = os.environ["ATLASSIAN_EMAIL"]
+token = os.environ["ATLASSIAN_API_TOKEN"]
+site  = os.environ["ATLASSIAN_SITE"]
+
+jql = "<Step 1 JQL from radar file>"
+payload = json.dumps({{"jql": jql, "fields": ["key"], "maxResults": 100}}).encode()
+auth = base64.b64encode(f"{{email}}:{{token}}".encode()).decode()
+req = urllib.request.Request(
+    f"https://{{site}}/rest/api/3/search/jql",
+    data=payload,
+    headers={{"Content-Type": "application/json", "Authorization": f"Basic {{auth}}"}}
+)
+with urllib.request.urlopen(req) as r:
+    data = json.load(r)
+print(",".join(i["key"] for i in data["issues"]))
+PYEOF
+```
+
+The output is a comma-separated list of epic keys (e.g. `CLOUD-6255,CLOUD-6288,...`).
 
 ## Step 2: Fetch all active child tickets
-Run the Step 2 JQL from the radar file, substituting the epic keys you just retrieved in Step 1.
-Request ONLY these fields to keep the response small: summary, status, assignee, updated, priority, issuelinks, customfield_10020.
-The sprint data is in `customfield_10020` — it's an array of sprint objects with `state` ("active", "future", "closed") and `name`.
-A ticket is in the active sprint if any entry in `customfield_10020` has `state: "active"`.
-Set maxResults to 100.
+Use Bash to fetch tickets via the Jira REST API, substituting the epic keys from Step 1 into the JQL.
+Write and run this Python script:
+
+```bash
+set -a && source {PROJECT_DIR}/.env && set +a && python3 << 'PYEOF'
+import urllib.request, urllib.error, json, os, base64
+
+email = os.environ["ATLASSIAN_EMAIL"]
+token = os.environ["ATLASSIAN_API_TOKEN"]
+site  = os.environ["ATLASSIAN_SITE"]
+
+epic_keys = "<comma-separated epic keys from Step 1>"
+jql = f"<Step 2 JQL from radar file with epic_keys substituted in>"
+payload = json.dumps({{
+    "jql": jql,
+    "fields": ["key","summary","status","assignee","updated","priority","issuelinks","customfield_10020"],
+    "maxResults": 100
+}}).encode()
+auth = base64.b64encode(f"{{email}}:{{token}}".encode()).decode()
+req = urllib.request.Request(
+    f"https://{{site}}/rest/api/3/search/jql",
+    data=payload,
+    headers={{"Content-Type": "application/json", "Authorization": f"Basic {{auth}}"}}
+)
+with urllib.request.urlopen(req) as r:
+    data = json.load(r)
+
+result = []
+for i in data["issues"]:
+    f = i["fields"]
+    assignee = f.get("assignee") or {{}}
+    sprints = f.get("customfield_10020") or []
+    links = f.get("issuelinks") or []
+    result.append({{
+        "key": i["key"],
+        "summary": f.get("summary"),
+        "status": (f.get("status") or {{}}).get("name"),
+        "assignee": assignee.get("displayName"),
+        "assignee_id": assignee.get("accountId"),
+        "updated": f.get("updated"),
+        "priority": (f.get("priority") or {{}}).get("name"),
+        "sprint_state": "active" if any(s.get("state") == "active" for s in sprints) else "none",
+        "blockers": [l["inwardIssue"]["key"] for l in links if l.get("type", {{}}).get("inward") == "is blocked by" and "inwardIssue" in l]
+    }})
+print(json.dumps(result, indent=2))
+PYEOF
+```
+
+The output is a compact JSON array — one flat object per ticket, all fields pre-extracted.
+Use this array directly for all analysis in Step 3. Do NOT call any MCP Jira search tools for this step.
+For `user_map`: use `assignee` (displayName) and `assignee_id` (accountId) from each ticket object.
 
 ## Step 3: Analyse every ticket — report all meaningful activity
 
