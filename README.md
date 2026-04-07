@@ -57,6 +57,8 @@ SLACK_BOT_TOKEN=xoxb-...
 CLAUDE_CODE_OAUTH_TOKEN=...
 ```
 
+`CLAUDE_CODE_OAUTH_TOKEN` is your Claude Code subscription OAuth token — get it by running `claude setup-token` in the terminal. The bot uses the `claude-agent-sdk` with `setting_sources=["user"]`, which routes all LLM calls through your Claude Code subscription instead of a separate Anthropic API key. No API billing account needed.
+
 ### 3. Configure the project
 
 Edit `configs/cloudsort.yaml`:
