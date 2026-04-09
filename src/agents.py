@@ -289,23 +289,13 @@ Full file structure:
       "sprint_state": "active"
     }}
   ],
-  "ticket_states": {{
-    "<TICKET-KEY>": {{
-      "status": "<status>",
-      "assignee": "<name or null>",
-      "summary": "<summary>",
-      "last_updated": "<ISO timestamp from JIRA updated field>",
-      "priority": "<priority>",
-      "blocker_keys": ["<list of ticket keys blocking this ticket, empty if none>"],
-      "sprint_state": "<active|future|closed|none>"
-    }}
-  }},
   "user_map": {{
     "<displayName>": "<accountId>"
   }}
 }}
 
 For `user_map`: extract the `displayName` and `accountId` from every assignee field you encounter across all tickets. Include all of them — this builds a local cache of JIRA users automatically.
+Do NOT include `ticket_states` in the output — Python builds this directly from the fetch data.
 
 ## Rules
 - No em dashes in writing

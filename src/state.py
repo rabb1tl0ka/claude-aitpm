@@ -134,6 +134,22 @@ def fetch_epic_keys(cfg: dict, project_dir: str) -> list:
     return keys
 
 
+def tickets_to_states(tickets: list) -> dict:
+    """Convert fetch_child_tickets() list to ticket_states dict format for state.json."""
+    return {
+        t["key"]: {
+            "status": t.get("status"),
+            "assignee": t.get("assignee"),
+            "summary": t.get("summary"),
+            "last_updated": t.get("updated"),
+            "priority": t.get("priority"),
+            "blocker_keys": t.get("blockers", []),
+            "sprint_state": t.get("sprint_state"),
+        }
+        for t in tickets
+    }
+
+
 def fetch_child_tickets(epic_keys: list, last_run: str | None = None, is_full_fetch: bool = True) -> list:
     """Fetch child tickets for the given epic keys from Jira REST API.
 
