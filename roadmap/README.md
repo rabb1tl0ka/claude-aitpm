@@ -25,6 +25,9 @@ For `idea-` and `challenge-` files, contributions can be a PR that evolves the f
 |---|---|---|
 | [feat-python-diff-precompute.md](feat-python-diff-precompute.md) | Feature | Pre-compute ticket diff in Python before agent runs — saves ~2-3k tokens per incremental monitor run |
 | [idea-on-demand-digest.md](idea-on-demand-digest.md) | Idea | Replace scheduled 8AM digest with on-demand `@aitpm digest` command |
+| [idea-deduplicate-alerts.md](idea-deduplicate-alerts.md) | Idea | Skip re-alerting on tickets already in pending_drafts to reduce Slack noise |
+| [idea-reply-to-any-alert.md](idea-reply-to-any-alert.md) | Idea | Turn every bot message into an actionable thread — reply with free-form instructions |
+| [challenge-slack-mcp-unavailable-in-subagents.md](challenge-slack-mcp-unavailable-in-subagents.md) | Challenge | Slack MCP not accessible in SDK subagents — nudges drafted from Jira context only |
 
 ## Templates
 

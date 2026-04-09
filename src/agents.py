@@ -109,7 +109,7 @@ def _read_radar_file(path: str) -> str:
 
 async def run_monitor(cfg: dict, state: dict, run_type: str = "monitor", epic_cache: list | None = None, child_tickets: list | None = None, is_full_fetch: bool = True) -> None:
     """Run JIRA monitor. Writes drafts to state/monitor_output.json for Python to post."""
-    pm_name = cfg.get("pm_name", "the PM")
+    tpm_name = cfg.get("tpm_name", "the PM")
     aitpm_name = cfg.get("aitpm_name", "AI TPM")
     atlassian_url = _atlassian_browse_url()
     jira_key = cfg["jira_project_key"]
@@ -211,7 +211,7 @@ The Python runner already identified tickets updated since last run with no stat
 For each ticket in the above data that has a `latest_comment`: surface it as a type "alert" including:
 - Ticket key, title and a link: <{atlassian_url}/TICKET-KEY|TICKET-KEY: Title>
 - Who commented and what they said (latest comment text, quoted)
-Do not suggest actions — {pm_name} will reply to this alert with instructions if needed.""")
+Do not suggest actions — {tpm_name} will reply to this alert with instructions if needed.""")
         else:
             step3_sections.append("""### New comment activity
 No tickets with new comment activity detected (either no updates since last run, or all updates were status changes). Skip this section.""")
@@ -226,7 +226,7 @@ Apply staleness thresholds by ticket priority:
 - A ticket is stale if `business_days_stale` exceeds the threshold for its priority AND `sprint_state` is "active"
 
 For stale tickets with an assignee: add them to `pending_nudges` in the output — do NOT draft the comment text here. A dedicated Sonnet agent handles nudge drafting in a second pass.
-For stale tickets with NO assignee: create a type "alert" flagging that the ticket is stale and unassigned so {pm_name} can assign it.""")
+For stale tickets with NO assignee: create a type "alert" flagging that the ticket is stale and unassigned so {tpm_name} can assign it.""")
 
     if feats.get("planning_gaps", True):
         step3_sections.append(f"""### Planning gaps
@@ -234,7 +234,7 @@ For tickets with no sprint assigned (customfield_10020 is null or empty): create
 Each alert must follow this exact format:
 "<{atlassian_url}/TICKET-KEY|TICKET-KEY: Ticket title> — no sprint assigned"
 Example: "<{atlassian_url}/{jira_key}-XXXX|{jira_key}-XXXX: Example ticket title> — no sprint assigned"
-{pm_name} will reply to each individual alert with instructions (e.g. "set sprint 161"). Do not nudge assignees.""")
+{tpm_name} will reply to each individual alert with instructions (e.g. "set sprint 161"). Do not nudge assignees.""")
 
     if feats.get("dependency_chains", True):
         step3_sections.append("""### Dependency chain check
@@ -287,8 +287,8 @@ Write a JSON file at this exact absolute path: {output_file}
 
 Each item in `posts` is one of two types:
 
-**Type 1 — Alert (for {pm_name} only)**
-Use for: status changes, comment activity, staleness alerts, digest summaries — anything {pm_name} should know about but that doesn't require a team message right now.
+**Type 1 — Alert (for {tpm_name} only)**
+Use for: status changes, comment activity, staleness alerts, digest summaries — anything {tpm_name} should know about but that doesn't require a team message right now.
 {{
   "type": "alert",
   "text": "<{atlassian_url}/TICKET-KEY|TICKET-KEY: Ticket title> — <concise message, no em dashes>",
@@ -296,7 +296,7 @@ Use for: status changes, comment activity, staleness alerts, digest summaries �
   "context": "<one-line description>"
 }}
 
-**Type 2 — Draft ({pm_name} reviews, then sends)**
+**Type 2 — Draft ({tpm_name} reviews, then sends)**
 Two subtypes based on `action`:
 
 `action: "slack"` — unblock notifications sent to the team channel:
@@ -313,7 +313,7 @@ Two subtypes based on `action`:
 {{
   "type": "draft",
   "action": "jira_comment",
-  "text": "<{atlassian_url}/TICKET-KEY|TICKET-KEY: Ticket title>\\n\\nProposed comment:\\n[comment text for {pm_name} to review]",
+  "text": "<{atlassian_url}/TICKET-KEY|TICKET-KEY: Ticket title>\\n\\nProposed comment:\\n[comment text for {tpm_name} to review]",
   "target_channel": null,
   "ticket_key": "<TICKET-KEY>",
   "context": "<one-line description>"
@@ -358,12 +358,12 @@ Do NOT include `ticket_states` in the output — Python builds this directly fro
 
 async def run_revision(cfg: dict, original_draft: str, feedback: str, context: str) -> str | None:
     """Spawn agent to revise a draft based on the owner's feedback. Returns revised text or None."""
-    pm_name = cfg.get("pm_name", "the PM")
+    tpm_name = cfg.get("tpm_name", "the PM")
     aitpm_name = cfg.get("aitpm_name", "AI TPM")
     output_file = os.path.join(PROJECT_DIR, "state", "revision_output.json")
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    prompt = f"""You are {aitpm_name} for {cfg['project_name']}. Revise a draft message based on {pm_name}'s feedback.
+    prompt = f"""You are {aitpm_name} for {cfg['project_name']}. Revise a draft message based on {tpm_name}'s feedback.
 
 ## Original draft
 {original_draft}
@@ -371,11 +371,11 @@ async def run_revision(cfg: dict, original_draft: str, feedback: str, context: s
 ## Context
 {context}
 
-## {pm_name}'s feedback
+## {tpm_name}'s feedback
 {feedback}
 
 ## Instructions
-1. Apply {pm_name}'s changes to the draft
+1. Apply {tpm_name}'s changes to the draft
 2. Keep the same purpose and tone, just incorporate the feedback
 3. Write the result to this exact absolute path: {output_file}
 {{
@@ -405,7 +405,7 @@ async def run_revision(cfg: dict, original_draft: str, feedback: str, context: s
 
 async def run_command(cfg: dict, state: dict, command_text: str) -> dict | None:
     """Handle an @aitpm command. Returns result dict or None."""
-    pm_name = cfg.get("pm_name", "the PM")
+    tpm_name = cfg.get("tpm_name", "the PM")
     aitpm_name = cfg.get("aitpm_name", "AI TPM")
     atlassian_url = _atlassian_browse_url()
 
@@ -433,7 +433,7 @@ async def run_command(cfg: dict, state: dict, command_text: str) -> dict | None:
         indent=2
     ) if pending_drafts else "None"
 
-    prompt = f"""You are {aitpm_name} for {cfg['project_name']}. {pm_name} sent you a command via Slack.
+    prompt = f"""You are {aitpm_name} for {cfg['project_name']}. {tpm_name} sent you a command via Slack.
 Respond as you would in a full Claude Code session — you have complete project context below.
 
 ## Context
@@ -453,19 +453,19 @@ Respond as you would in a full Claude Code session — you have complete project
 ## Known Ticket States (from last monitor run)
 {ticket_states}
 
-## Pending drafts awaiting {pm_name}'s approval
+## Pending drafts awaiting {tpm_name}'s approval
 {pending_summary}
 
-## {pm_name}'s command
+## {tpm_name}'s command
 {command_text}
 
 ---
 
 ## Instructions
-1. Understand what {pm_name} is asking — answer it fully, same as you would in a Claude Code session
+1. Understand what {tpm_name} is asking — answer it fully, same as you would in a Claude Code session
 2. Use `mcp__cloudsort-jira__searchJiraIssuesUsingJql` or `mcp__cloudsort-jira__getJiraIssue` as needed — do NOT call getAccessibleAtlassianResources first
 3. JIRA comment replies have a `parentId` field but appear in the same flat list — look at ALL comments to find all activity
-4. If {pm_name} asks you to comment on a ticket or transition it, do it directly using the available tools
+4. If {tpm_name} asks you to comment on a ticket or transition it, do it directly using the available tools
 5. Write your response to this exact absolute path: {output_file}
 {{
   "response": "<your answer — concise, direct, no em dashes>",
@@ -528,7 +528,7 @@ If the comment contains @mentions, use proper ADF mention nodes with the account
 async def run_nudge_drafter(cfg: dict, state: dict, pending_nudges: list) -> None:
     """Draft smart, contextual nudge comments for stale tickets using Sonnet.
     Reads vault notes + Slack context. Writes state/nudge_output.json."""
-    pm_name = cfg.get("pm_name", "the PM")
+    tpm_name = cfg.get("tpm_name", "the PM")
     aitpm_name = cfg.get("aitpm_name", "AI TPM")
     atlassian_url = _atlassian_browse_url()
     jira_key = cfg["jira_project_key"]
@@ -597,7 +597,7 @@ If a channel has no new messages, keep the same oldest timestamp.
 ### Step 4 — Draft the nudge comment
 Combine all context to write a specific, non-robotic comment nudging the assignee.
 
-Write in first person as the PM — do NOT use "{pm_name}" or refer to the author in third person.
+Write in first person as the PM — do NOT use "{tpm_name}" or refer to the author in third person.
 
 **Good (vault note + prior comments):**
 "Hey @Daniela - last note here was about waiting on design mockups for the Edit Network payment flow. Any movement there? Trying to figure out if we're still on track."

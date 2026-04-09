@@ -1,7 +1,7 @@
 project_name: CloudSort
-pm_name: "Bruno"          # Human PM's display name — used in first-person nudge comments and approval context
-aitpm_name: "Bruno AI TPM"  # Bot identity — used in agent persona and Slack replies
-owner_slack_user_id: ""  # your Slack user ID (e.g. U02GXNG41GE) Find it in Slack: click your name → View profile → More (three dots) → Copy member ID.
+tpm_name: "Bruno"           # TPM's display name — used in first-person nudge comments and approval context
+aitpm_name: "Bruno AI TPM"  # AI TPM identity — the TPM's digital twin, used in agent persona and Slack replies
+tpm_slack_user_id: ""  # TPM's Slack user ID (e.g. U02GXNG41GE) Find it in Slack: click your name → View profile → More (three dots) → Copy member ID.
 jira_project_key: CLOUD
 jira_radar_file: ~/loka/vaults/loka2026/projects/cloudsort/jb/jb-watching-radar.md
 staleness_thresholds:

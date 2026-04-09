@@ -114,7 +114,7 @@ _QUESTION_SIGNALS = {"?", "what", "why", "how", "suggest", "recommend", "should"
 
 
 def detect_intent(text: str) -> str:
-    """Classify the owner's reply: 'approve', 'command', 'question', 'edit', or 'none'."""
+    """Classify the TPM's reply: 'approve', 'command', 'question', 'edit', or 'none'."""
     lower = text.lower().strip()
     if not lower:
         return "none"

@@ -182,7 +182,7 @@ def run_monitor(cfg: dict, state: dict, run_type: str, log: logging.Logger, refr
 
 
 # ---------------------------------------------------------------------------
-# Approval poll: check threads for the owner's replies
+# Approval poll: check threads for the TPM's replies
 # ---------------------------------------------------------------------------
 
 def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
@@ -203,10 +203,10 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
             continue
 
         # Check for ✅ reaction approval first
-        owner_id = cfg.get("owner_slack_user_id", "")
+        tpm_id = cfg.get("tpm_slack_user_id", "")
         reactions = get_message_reactions(aitpm_channel, slack_ts)
         reacted_approve = any(
-            r["name"] == "white_check_mark" and (not owner_id or owner_id in r.get("users", []))
+            r["name"] == "white_check_mark" and (not tpm_id or tpm_id in r.get("users", []))
             for r in reactions
         )
         if reacted_approve and draft.get("status") != "sent":
@@ -234,17 +234,17 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
             continue
 
         replies = get_thread_replies(aitpm_channel, slack_ts)
-        # Skip parent message (index 0), look at owner's replies only
-        bruno_replies = [r for r in replies[1:] if not is_bot_message(r)]
-        if not bruno_replies:
+        # Skip parent message (index 0), look at TPM's replies only
+        tpm_replies = [r for r in replies[1:] if not is_bot_message(r)]
+        if not tpm_replies:
             continue
 
         # Only process new replies from the owner
-        owner_id = cfg.get("owner_slack_user_id", "")
-        if owner_id:
-            bruno_replies = [r for r in bruno_replies if r.get("user") == owner_id]
+        tpm_id = cfg.get("tpm_slack_user_id", "")
+        if tpm_id:
+            tpm_replies = [r for r in tpm_replies if r.get("user") == tpm_id]
         last_seen = draft.get("last_reply_ts") or "0"
-        new_replies = [r for r in bruno_replies if r.get("ts", "0") > last_seen]
+        new_replies = [r for r in tpm_replies if r.get("ts", "0") > last_seen]
         if not new_replies:
             continue
 
@@ -269,7 +269,7 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
             target = draft.get("target_channel")
             if action == "jira_comment":
                 ticket_key = draft.get("ticket_key")
-                # Extract the actual comment text — strip the header block the owner saw
+                # Extract the actual comment text — strip the header block the TPM saw
                 comment_text = draft["draft_text"]
                 if "Proposed comment:" in comment_text:
                     comment_text = comment_text.split("Proposed comment:")[-1].strip()
@@ -332,11 +332,11 @@ def run_inbound_check(cfg: dict, state: dict, log: logging.Logger) -> None:
     messages = get_channel_history(aitpm_channel, oldest=last_check, limit=20)
 
     # Find top-level messages from the owner that mention the bot
-    owner_id = cfg.get("owner_slack_user_id", "")
+    tpm_id = cfg.get("tpm_slack_user_id", "")
     commands = [
         m for m in messages
         if not is_bot_message(m)
-        and (not owner_id or m.get("user") == owner_id)
+        and (not tpm_id or m.get("user") == tpm_id)
         and (not m.get("thread_ts") or m.get("thread_ts") == m.get("ts"))  # top-level only
         and is_bot_mention(m.get("text", ""))
     ]
