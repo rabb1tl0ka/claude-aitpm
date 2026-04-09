@@ -49,6 +49,10 @@ _NUDGE_TOOLS = [
 ]
 
 
+def _atlassian_browse_url() -> str:
+    return f"https://{os.environ['ATLASSIAN_SITE']}/browse"
+
+
 def _options(tools: list, model: str = "haiku", max_turns: int = 20) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=model,
@@ -105,6 +109,11 @@ def _read_radar_file(path: str) -> str:
 
 async def run_monitor(cfg: dict, state: dict, run_type: str = "monitor", epic_cache: list | None = None, child_tickets: list | None = None, is_full_fetch: bool = True) -> None:
     """Run JIRA monitor. Writes drafts to state/monitor_output.json for Python to post."""
+    pm_name = cfg.get("pm_name", "the PM")
+    aitpm_name = cfg.get("aitpm_name", "AI TPM")
+    atlassian_url = _atlassian_browse_url()
+    jira_key = cfg["jira_project_key"]
+
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     last_run = state.get("last_monitor_run") or "never"
     ticket_states = json.dumps(
@@ -200,9 +209,9 @@ The Python runner already identified tickets updated since last run with no stat
 ```
 
 For each ticket in the above data that has a `latest_comment`: surface it as a type "alert" including:
-- Ticket key, title and a link: <https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Title>
+- Ticket key, title and a link: <{atlassian_url}/TICKET-KEY|TICKET-KEY: Title>
 - Who commented and what they said (latest comment text, quoted)
-Do not suggest actions — Bruno will reply to this alert with instructions if needed.""")
+Do not suggest actions — {pm_name} will reply to this alert with instructions if needed.""")
         else:
             step3_sections.append("""### New comment activity
 No tickets with new comment activity detected (either no updates since last run, or all updates were status changes). Skip this section.""")
@@ -217,15 +226,15 @@ Apply staleness thresholds by ticket priority:
 - A ticket is stale if `business_days_stale` exceeds the threshold for its priority AND `sprint_state` is "active"
 
 For stale tickets with an assignee: add them to `pending_nudges` in the output — do NOT draft the comment text here. A dedicated Sonnet agent handles nudge drafting in a second pass.
-For stale tickets with NO assignee: create a type "alert" flagging that the ticket is stale and unassigned so Bruno can assign it.""")
+For stale tickets with NO assignee: create a type "alert" flagging that the ticket is stale and unassigned so {pm_name} can assign it.""")
 
     if feats.get("planning_gaps", True):
-        step3_sections.append("""### Planning gaps
+        step3_sections.append(f"""### Planning gaps
 For tickets with no sprint assigned (customfield_10020 is null or empty): create ONE SEPARATE type "alert" post per ticket. Do NOT group them into one message.
 Each alert must follow this exact format:
-"<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Ticket title> — no sprint assigned"
-Example: "<https://cloudsort.atlassian.net/browse/CLOUD-6521|CLOUD-6521: WEB: List payment methods> — no sprint assigned"
-Bruno will reply to each individual alert with instructions (e.g. "set sprint 161"). Do not nudge assignees.""")
+"<{atlassian_url}/TICKET-KEY|TICKET-KEY: Ticket title> — no sprint assigned"
+Example: "<{atlassian_url}/{jira_key}-XXXX|{jira_key}-XXXX: Example ticket title> — no sprint assigned"
+{pm_name} will reply to each individual alert with instructions (e.g. "set sprint 161"). Do not nudge assignees.""")
 
     if feats.get("dependency_chains", True):
         step3_sections.append("""### Dependency chain check
@@ -246,12 +255,12 @@ For each ticket, inspect its `blockers` field for blocking relationships:
     else:
         step3_block = "## Step 3: No analysis features enabled — skip to Step 4."
 
-    prompt = f"""You are the AI AITPM (AI Technical Project Manager) for CloudSort.
+    prompt = f"""You are {aitpm_name} (AI Technical Project Manager) for {cfg['project_name']}.
 This is a {run_label} run. Your output will be posted to Slack by the Python runner.
 
 ## Context
 - Project: {cfg['project_name']}
-- JIRA project key: {cfg['jira_project_key']}
+- JIRA project key: {jira_key}
 - Current time (UTC): {now}
 - Last monitor run: {last_run}
 - Staleness thresholds (no update = nudge after N days):
@@ -278,16 +287,16 @@ Write a JSON file at this exact absolute path: {output_file}
 
 Each item in `posts` is one of two types:
 
-**Type 1 — Alert (for Bruno only)**
-Use for: status changes, comment activity, staleness alerts, digest summaries — anything Bruno should know about but that doesn't require a team message right now.
+**Type 1 — Alert (for {pm_name} only)**
+Use for: status changes, comment activity, staleness alerts, digest summaries — anything {pm_name} should know about but that doesn't require a team message right now.
 {{
   "type": "alert",
-  "text": "<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Ticket title> — <concise message, no em dashes>",
+  "text": "<{atlassian_url}/TICKET-KEY|TICKET-KEY: Ticket title> — <concise message, no em dashes>",
   "target_channel": null,
   "context": "<one-line description>"
 }}
 
-**Type 2 — Draft (Bruno reviews, then sends)**
+**Type 2 — Draft ({pm_name} reviews, then sends)**
 Two subtypes based on `action`:
 
 `action: "slack"` — unblock notifications sent to the team channel:
@@ -304,7 +313,7 @@ Two subtypes based on `action`:
 {{
   "type": "draft",
   "action": "jira_comment",
-  "text": "<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Ticket title>\n\nProposed comment:\n[comment text for Bruno to review]",
+  "text": "<{atlassian_url}/TICKET-KEY|TICKET-KEY: Ticket title>\\n\\nProposed comment:\\n[comment text for {pm_name} to review]",
   "target_channel": null,
   "ticket_key": "<TICKET-KEY>",
   "context": "<one-line description>"
@@ -347,12 +356,14 @@ Do NOT include `ticket_states` in the output — Python builds this directly fro
     await _run(prompt, _MONITOR_TOOLS, model=model, max_turns=30, label=f"monitor-{run_type}")
 
 
-async def run_revision(original_draft: str, feedback: str, context: str) -> str | None:
-    """Spawn agent to revise a draft based on Bruno's feedback. Returns revised text or None."""
+async def run_revision(cfg: dict, original_draft: str, feedback: str, context: str) -> str | None:
+    """Spawn agent to revise a draft based on the owner's feedback. Returns revised text or None."""
+    pm_name = cfg.get("pm_name", "the PM")
+    aitpm_name = cfg.get("aitpm_name", "AI TPM")
     output_file = os.path.join(PROJECT_DIR, "state", "revision_output.json")
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    prompt = f"""You are the AI AITPM for CloudSort. Revise a draft message based on Bruno's feedback.
+    prompt = f"""You are {aitpm_name} for {cfg['project_name']}. Revise a draft message based on {pm_name}'s feedback.
 
 ## Original draft
 {original_draft}
@@ -360,11 +371,11 @@ async def run_revision(original_draft: str, feedback: str, context: str) -> str 
 ## Context
 {context}
 
-## Bruno's feedback
+## {pm_name}'s feedback
 {feedback}
 
 ## Instructions
-1. Apply Bruno's changes to the draft
+1. Apply {pm_name}'s changes to the draft
 2. Keep the same purpose and tone, just incorporate the feedback
 3. Write the result to this exact absolute path: {output_file}
 {{
@@ -394,6 +405,10 @@ async def run_revision(original_draft: str, feedback: str, context: str) -> str 
 
 async def run_command(cfg: dict, state: dict, command_text: str) -> dict | None:
     """Handle an @aitpm command. Returns result dict or None."""
+    pm_name = cfg.get("pm_name", "the PM")
+    aitpm_name = cfg.get("aitpm_name", "AI TPM")
+    atlassian_url = _atlassian_browse_url()
+
     output_file = os.path.join(PROJECT_DIR, "state", "command_output.json")
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     radar_content = _read_radar_file(cfg["jira_radar_file"])
@@ -418,7 +433,7 @@ async def run_command(cfg: dict, state: dict, command_text: str) -> dict | None:
         indent=2
     ) if pending_drafts else "None"
 
-    prompt = f"""You are the AI AITPM for CloudSort. Bruno sent you a command via Slack.
+    prompt = f"""You are {aitpm_name} for {cfg['project_name']}. {pm_name} sent you a command via Slack.
 Respond as you would in a full Claude Code session — you have complete project context below.
 
 ## Context
@@ -438,19 +453,19 @@ Respond as you would in a full Claude Code session — you have complete project
 ## Known Ticket States (from last monitor run)
 {ticket_states}
 
-## Pending drafts awaiting Bruno's approval
+## Pending drafts awaiting {pm_name}'s approval
 {pending_summary}
 
-## Bruno's command
+## {pm_name}'s command
 {command_text}
 
 ---
 
 ## Instructions
-1. Understand what Bruno is asking — answer it fully, same as you would in a Claude Code session
+1. Understand what {pm_name} is asking — answer it fully, same as you would in a Claude Code session
 2. Use `mcp__cloudsort-jira__searchJiraIssuesUsingJql` or `mcp__cloudsort-jira__getJiraIssue` as needed — do NOT call getAccessibleAtlassianResources first
 3. JIRA comment replies have a `parentId` field but appear in the same flat list — look at ALL comments to find all activity
-4. If Bruno asks you to comment on a ticket or transition it, do it directly using the available tools
+4. If {pm_name} asks you to comment on a ticket or transition it, do it directly using the available tools
 5. Write your response to this exact absolute path: {output_file}
 {{
   "response": "<your answer — concise, direct, no em dashes>",
@@ -480,6 +495,7 @@ Respond as you would in a full Claude Code session — you have complete project
 
 async def run_jira_comment(ticket_key: str, comment_text: str, user_map: dict | None = None) -> bool:
     """Post an approved comment to a JIRA ticket. Returns True on success."""
+    atlassian_site = os.environ["ATLASSIAN_SITE"]
     user_map_info = ""
     if user_map:
         entries = "\n".join(f"  {name}: {account_id}" for name, account_id in user_map.items())
@@ -498,7 +514,7 @@ Comment text:
 {comment_text}
 {user_map_info}
 Use `mcp__cloudsort-jira__addCommentToJiraIssue` directly. Do NOT call getAccessibleAtlassianResources first.
-The cloudId is: cloudsort.atlassian.net
+The cloudId is: {atlassian_site}
 If the comment contains @mentions, use proper ADF mention nodes with the accountIds from the user map above.
 """
     try:
@@ -512,6 +528,11 @@ If the comment contains @mentions, use proper ADF mention nodes with the account
 async def run_nudge_drafter(cfg: dict, state: dict, pending_nudges: list) -> None:
     """Draft smart, contextual nudge comments for stale tickets using Sonnet.
     Reads vault notes + Slack context. Writes state/nudge_output.json."""
+    pm_name = cfg.get("pm_name", "the PM")
+    aitpm_name = cfg.get("aitpm_name", "AI TPM")
+    atlassian_url = _atlassian_browse_url()
+    jira_key = cfg["jira_project_key"]
+
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     features_vault_path = os.path.expanduser(cfg.get("features_vault_path", ""))
     slack_channel_ids = cfg.get("slack_channel_ids", {})
@@ -529,7 +550,7 @@ async def run_nudge_drafter(cfg: dict, state: dict, pending_nudges: list) -> Non
     )
     nudges_json = json.dumps(pending_nudges, indent=2)
 
-    prompt = f"""You are the AI AITPM for CloudSort. Draft smart, contextual JIRA nudge comments for stale tickets.
+    prompt = f"""You are {aitpm_name} for {cfg['project_name']}. Draft smart, contextual JIRA nudge comments for stale tickets.
 
 ## Current time (UTC)
 {now}
@@ -576,7 +597,7 @@ If a channel has no new messages, keep the same oldest timestamp.
 ### Step 4 — Draft the nudge comment
 Combine all context to write a specific, non-robotic comment nudging the assignee.
 
-Write in first person as the PM — do NOT use "Bruno" or refer to the author in third person.
+Write in first person as the PM — do NOT use "{pm_name}" or refer to the author in third person.
 
 **Good (vault note + prior comments):**
 "Hey @Daniela - last note here was about waiting on design mockups for the Edit Network payment flow. Any movement there? Trying to figure out if we're still on track."
@@ -585,7 +606,7 @@ Write in first person as the PM — do NOT use "Bruno" or refer to the author in
 "Hey @gabriel.menezes - saw your note from last week about the API shape being unclear. Did that get sorted with the backend team?"
 
 **Good (no prior context):**
-"Hey @gabriel.menezes - https://cloudsort.atlassian.net/browse/CLOUD-6427 has been quiet for 3 business days. Anything blocking the trip details page work, or is it moving along?"
+"Hey @gabriel.menezes - {atlassian_url}/{jira_key}-XXXX has been quiet for 3 business days. Anything blocking this work, or is it moving along?"
 
 **Rules:**
 - Never just ask "what's the current status?" — reference something specific
@@ -594,8 +615,8 @@ Write in first person as the PM — do NOT use "Bruno" or refer to the author in
 - No comma after @mention
 - Keep it short: 2-3 sentences max
 - No em dashes
-- Never use "Bruno" — write as first person (the comment will be posted under the PM's account)
-- When referencing a ticket by key in comment text, use the full URL: https://cloudsort.atlassian.net/browse/CLOUD-XXXX
+- Write in first person — do not refer to the PM by name (the comment will be posted under the PM's account)
+- When referencing a ticket by key in comment text, use the full URL: {atlassian_url}/TICKET-KEY
 
 ### Step 5 — Write output file
 Write JSON to: {output_file}
@@ -606,7 +627,7 @@ Write JSON to: {output_file}
     {{
       "type": "draft",
       "action": "jira_comment",
-      "text": "<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Ticket title>\\n\\nProposed comment:\\n[your drafted comment]",
+      "text": "<{atlassian_url}/TICKET-KEY|TICKET-KEY: Ticket title>\\n\\nProposed comment:\\n[your drafted comment]",
       "target_channel": null,
       "ticket_key": "TICKET-KEY",
       "context": "<one-line description>"
@@ -633,8 +654,8 @@ def run_nudge_drafter_sync(cfg: dict, state: dict, pending_nudges: list) -> None
     asyncio.run(run_nudge_drafter(cfg, state, pending_nudges))
 
 
-def run_revision_sync(original_draft: str, feedback: str, context: str) -> str | None:
-    return asyncio.run(run_revision(original_draft, feedback, context))
+def run_revision_sync(cfg: dict, original_draft: str, feedback: str, context: str) -> str | None:
+    return asyncio.run(run_revision(cfg, original_draft, feedback, context))
 
 
 def run_command_sync(cfg: dict, state: dict, command_text: str) -> dict | None:

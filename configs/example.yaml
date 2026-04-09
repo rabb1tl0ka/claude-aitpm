@@ -1,0 +1,61 @@
+# AI TPM — Example Config
+# Copy this file to configs/your-project.yaml and fill in the values.
+# Run with: python3 main.py --config your-project
+
+# Project identity
+project_name: "My Project"           # Used in agent persona and Slack messages
+pm_name: "Alex"                      # Human PM's display name — used in first-person nudge comments and approval context
+aitpm_name: "Alex AI TPM"            # Bot identity — the PM's digital twin name, used in persona and Slack replies
+
+# Jira
+jira_project_key: PROJ               # Your Jira project key (e.g. CLOUD, ENG, APP)
+jira_radar_file: ~/path/to/radar.md  # Markdown file containing Step 1 JQL and radar context
+
+# Slack
+owner_slack_user_id: ""              # Your Slack user ID — find it: click your name → View profile → More → Copy member ID
+slack_aitpm_channel: "#proj-aitpm"   # Private channel where the bot posts alerts and drafts
+
+slack_channels:                      # Team channels available for outbound draft messages
+  general: "#proj-general"
+  backend: "#proj-backend"
+  frontend: "#proj-frontend"
+  design: "#proj-design"
+
+slack_channel_ids:                   # Channel IDs for reading history via MCP (Slack API requires IDs, not names)
+  "#proj-general": "CXXXXXXXXX"
+  "#proj-backend": "CXXXXXXXXX"
+  "#proj-frontend": "CXXXXXXXXX"
+  "#proj-design": "CXXXXXXXXX"
+
+# Feature vault — one .md file per epic, each containing its Jira epic key
+features_vault_path: ~/path/to/features/vault
+
+# Sprint info — update manually each sprint
+sprint:
+  name: ""                           # e.g. "Sprint 42"
+  start: ""                          # e.g. "2026-04-07"
+  end: ""                            # e.g. "2026-04-18"
+
+# Staleness thresholds — nudge after N business days with no update (null = never nudge)
+staleness_thresholds:
+  P1: 1
+  P2: 2
+  P3: 4
+  P4: null
+
+# Scheduler
+schedule:
+  monitor_interval_min: 60           # How often to run the hourly monitor
+  approval_interval_min: 3           # How often to poll for replies and @aitpm commands
+  timezone: "America/New_York"       # Your local timezone
+  work_hours_start: 8                # Monitor only runs during work hours
+  work_hours_end: 21
+
+# Monitor features — toggle each analysis block on/off
+monitor_features:
+  status_changes: true               # Surface ticket status advances and regressions
+  comment_activity: true             # Surface new Jira comments on tickets
+  staleness: true                    # Nudge stale tickets based on priority thresholds
+  planning_gaps: false               # Flag tickets with no sprint assigned
+  dependency_chains: true            # Detect tickets unblocked when their blocker is resolved
+  scope_summary: false               # Include a digest summary or monitor scope report

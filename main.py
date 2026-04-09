@@ -182,7 +182,7 @@ def run_monitor(cfg: dict, state: dict, run_type: str, log: logging.Logger, refr
 
 
 # ---------------------------------------------------------------------------
-# Approval poll: check threads for Bruno's replies
+# Approval poll: check threads for the owner's replies
 # ---------------------------------------------------------------------------
 
 def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
@@ -234,7 +234,7 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
             continue
 
         replies = get_thread_replies(aitpm_channel, slack_ts)
-        # Skip parent message (index 0), look at Bruno's replies only
+        # Skip parent message (index 0), look at owner's replies only
         bruno_replies = [r for r in replies[1:] if not is_bot_message(r)]
         if not bruno_replies:
             continue
@@ -269,7 +269,7 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
             target = draft.get("target_channel")
             if action == "jira_comment":
                 ticket_key = draft.get("ticket_key")
-                # Extract the actual comment text — strip the header block Bruno saw
+                # Extract the actual comment text — strip the header block the owner saw
                 comment_text = draft["draft_text"]
                 if "Proposed comment:" in comment_text:
                     comment_text = comment_text.split("Proposed comment:")[-1].strip()
@@ -300,7 +300,7 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
 
         elif intent == "edit":
             log.info(f"[poll] Edit request detected: {reply_text[:80]}")
-            revised = run_revision_sync(draft["draft_text"], reply_text, draft.get("context", ""))
+            revised = run_revision_sync(cfg, draft["draft_text"], reply_text, draft.get("context", ""))
             if revised:
                 post_message(aitpm_channel, f"Revised draft:\n\n{revised}", thread_ts=slack_ts)
                 draft["draft_text"] = revised
