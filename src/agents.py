@@ -554,10 +554,16 @@ Each entry contains:
 ### Step 2 — Look up feature vault note
 Use Bash to search for the epic key in the vault:
 ```bash
-grep -rl "CLOUD-XXXXX" {features_vault_path}/
+grep -rl "EPIC-KEY" {features_vault_path}/
 ```
-If a file is found, read it — it contains the feature goals, stage progress, dependencies, and known blockers.
-If no file is found, call `mcp__cloudsort-jira__getJiraIssue` on the epic key with field `description` to get the feature context.
+Replace EPIC-KEY with the actual epic key from Step 1.
+
+**If a file is found:** read it — it contains the feature goal, current/future state context, implementation approach, dependencies, and open questions.
+
+**If no file is found:**
+1. Call `mcp__cloudsort-jira__getJiraIssue` on the epic key with field `description` to get the feature context.
+2. Read the template at `{features_vault_path}/_feature_template.md`
+3. Create a new vault note at `{features_vault_path}/EPIC-KEY.md` (replace EPIC-KEY with the actual key) by filling in the template with whatever you can derive from the Jira description. Leave sections as `TBD` where there is not enough information. Do NOT invent details.
 
 ### Step 3 — Read recent Slack messages
 Read each channel below for recent team discussions:
