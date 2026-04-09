@@ -14,6 +14,16 @@ slack_channels:
   webapp: "#cloudsort_webapp"
   design: "#cloudsort_design"
 
+# Slack channel IDs — used for reading channel history via MCP
+slack_channel_ids:
+  "#cloudsort_chat": "C049U0HNZQA"
+  "#cloudsort_backend": "C014K67V7HB"
+  "#cloudsort_webapp": "CTFQHDVML"
+  "#cloudsort_design": "C016JD80V08"
+
+# Path to feature vault notes (one .md per feature, each contains its JIRA epic key)
+features_vault_path: ~/loka/vaults/loka2026/projects/cloudsort/jb/features
+
 # Sprint info — update manually each sprint
 sprint:
   name: ""
@@ -26,3 +36,12 @@ schedule:
   timezone: "Europe/Lisbon"
   work_hours_start: 8
   work_hours_end: 21
+
+# Monitor agent features — toggle each Step 3 analysis block on/off
+monitor_features:
+  status_changes: true       # 3a: surface status advances and regressions
+  comment_activity: true     # 3b: fetch and surface new Jira comments
+  staleness: true            # 3c: nudge stale tickets based on priority thresholds
+  planning_gaps: false        # 3d: flag tickets with no sprint assigned
+  dependency_chains: true    # 3e: detect unblocked tickets when blockers are resolved
+  scope_summary: false        # 3f: digest summary or monitor scope report

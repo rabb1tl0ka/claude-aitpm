@@ -37,6 +37,15 @@ _COMMAND_TOOLS = [
     "Write",
 ]
 
+_NUDGE_TOOLS = [
+    "mcp__cloudsort-jira__getJiraIssue",
+    "mcp__claude_ai_Slack__slack_read_channel",
+    "Bash",
+    "Read",
+    "Glob",
+    "Write",
+]
+
 
 def _options(tools: list, model: str = "haiku", max_turns: int = 20) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
@@ -92,11 +101,15 @@ def _read_radar_file(path: str) -> str:
         return f.read()
 
 
-async def run_monitor(cfg: dict, state: dict, run_type: str = "monitor") -> None:
+async def run_monitor(cfg: dict, state: dict, run_type: str = "monitor", epic_cache: list | None = None, child_tickets: list | None = None, is_full_fetch: bool = True) -> None:
     """Run JIRA monitor. Writes drafts to state/monitor_output.json for Python to post."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     last_run = state.get("last_monitor_run") or "never"
-    ticket_states = json.dumps(state.get("ticket_states", {}), indent=2)
+    ticket_states = json.dumps(
+        {k: {"status": v.get("status"), "last_updated": v.get("last_updated")}
+         for k, v in state.get("ticket_states", {}).items()},
+        indent=2
+    )
     radar_content = _read_radar_file(cfg["jira_radar_file"])
     staleness_thresholds = cfg.get("staleness_thresholds", {"P1": 1, "P2": 2, "P3": 4, "P4": None})
     staleness_info = "\n".join(
@@ -114,8 +127,86 @@ async def run_monitor(cfg: dict, state: dict, run_type: str = "monitor") -> None
 
     is_digest = run_type == "digest"
     run_label = "8AM DIGEST + RISK ASSESSMENT" if is_digest else "HOURLY MONITOR"
+    feats = cfg.get("monitor_features", {})
 
     output_file = os.path.join(PROJECT_DIR, "state", "monitor_output.json")
+
+    # Step 1 is resolved by Python before the agent runs — epic_cache is always populated here
+    epic_keys_str = ",".join(epic_cache)
+    step1_block = f"""## Step 1: Epic keys (pre-resolved)
+The Python runner already fetched or loaded these from cache. Use them directly:
+`{epic_keys_str}`
+"""
+
+    fetch_mode = "full" if is_full_fetch else f"incremental (since {last_run})"
+    step2_block = f"""## Step 2: Child tickets (pre-fetched)
+The Python runner already fetched these via Jira REST API ({fetch_mode}). Do NOT make any Bash or API calls for this step.
+
+```json
+{json.dumps(child_tickets or [], indent=2)}
+```
+
+Use this list for all analysis in Step 3.
+For `user_map`: extract `assignee` (displayName) and `assignee_id` (accountId) from each ticket.
+"""
+
+    # --- Step 3: build analysis blocks from active features ---
+    step3_sections = []
+
+    if feats.get("status_changes", True):
+        step3_sections.append("""### Status changes
+Compare each ticket's current status to Known Ticket States from last run.
+Report ALL status changes — progress is good news worth surfacing:
+- 🟢 Advanced (e.g. In Progress → In Review, In Review → Done)
+- 🔴 Regressed or newly blocked""")
+
+    if feats.get("comment_activity", True):
+        step3_sections.append("""### New comment activity
+If a ticket's `updated` timestamp is newer than last run and its status has NOT changed, a comment was likely added.
+For each such ticket: call `mcp__cloudsort-jira__getJiraIssue` with the `comment` field to fetch the latest comment.
+Surface this as a type "alert" including:
+- Ticket key, title and a link: <https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Title>
+- Who commented and what they said (latest comment text, quoted)
+Do not suggest actions — Bruno will reply to this alert with instructions if needed.""")
+
+    if feats.get("staleness", True):
+        step3_sections.append(f"""### Staleness check
+Each ticket in the Step 2 data includes a `business_days_stale` field — use it directly, do not recompute.
+Apply staleness thresholds by ticket priority:
+{staleness_info}
+- P4 tickets: never nudge
+- Tickets with `sprint_state` != "active": never nudge (backlog, future, or closed sprint)
+- A ticket is stale if `business_days_stale` exceeds the threshold for its priority AND `sprint_state` is "active"
+
+For stale tickets with an assignee: add them to `pending_nudges` in the output — do NOT draft the comment text here. A dedicated Sonnet agent handles nudge drafting in a second pass.
+For stale tickets with NO assignee: create a type "alert" flagging that the ticket is stale and unassigned so Bruno can assign it.""")
+
+    if feats.get("planning_gaps", True):
+        step3_sections.append("""### Planning gaps
+For tickets with no sprint assigned (customfield_10020 is null or empty): create ONE SEPARATE type "alert" post per ticket. Do NOT group them into one message.
+Each alert must follow this exact format:
+"<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Ticket title> — no sprint assigned"
+Example: "<https://cloudsort.atlassian.net/browse/CLOUD-6521|CLOUD-6521: WEB: List payment methods> — no sprint assigned"
+Bruno will reply to each individual alert with instructions (e.g. "set sprint 161"). Do not nudge assignees.""")
+
+    if feats.get("dependency_chains", True):
+        step3_sections.append("""### Dependency chain check
+For each ticket, inspect its `blockers` field for blocking relationships:
+- If a ticket is blocked by another ticket and that blocker's status is now Done:
+  - Check Known Ticket States: was the blocker already Done last run? If yes, skip (already notified).
+  - If this is new: create a draft unblock notification to the assignee of the newly-unblocked ticket.
+- Use `blocker_keys` in Known Ticket States to detect changes in blocking relationships.""")
+
+    if feats.get("scope_summary", True):
+        if is_digest:
+            step3_sections.append("### Digest summary\nSummarise ALL radar tickets grouped by epic: current status, assignee, progress, risks. This is the daily snapshot.")
+        else:
+            step3_sections.append("### Monitor scope\nReport everything that changed or needs attention since last run. If nothing changed and nothing is stale, posts array can be empty.")
+
+    if step3_sections:
+        step3_block = "## Step 3: Analyse every ticket — report all meaningful activity\n\nThis is an activity feed, not just a problem detector. Surface good news too.\n\n" + "\n\n".join(step3_sections)
+    else:
+        step3_block = "## Step 3: No analysis features enabled — skip to Step 4."
 
     prompt = f"""You are the AI AITPM (AI Technical Project Manager) for CloudSort.
 This is a {run_label} run. Your output will be posted to Slack by the Python runner.
@@ -140,142 +231,9 @@ This is a {run_label} run. Your output will be posted to Slack by the Python run
 
 ---
 
-## Step 1: Fetch watched epics dynamically
-Use Bash to fetch epic keys via the Jira REST API. Read credentials from {PROJECT_DIR}/.env.
-Write and run this Python script:
-
-```bash
-set -a && source {PROJECT_DIR}/.env && set +a && python3 << 'PYEOF'
-import urllib.request, urllib.error, json, os, base64
-
-email = os.environ["ATLASSIAN_EMAIL"]
-token = os.environ["ATLASSIAN_API_TOKEN"]
-site  = os.environ["ATLASSIAN_SITE"]
-
-jql = "<Step 1 JQL from radar file>"
-payload = json.dumps({{"jql": jql, "fields": ["key"], "maxResults": 100}}).encode()
-auth = base64.b64encode(f"{{email}}:{{token}}".encode()).decode()
-req = urllib.request.Request(
-    f"https://{{site}}/rest/api/3/search/jql",
-    data=payload,
-    headers={{"Content-Type": "application/json", "Authorization": f"Basic {{auth}}"}}
-)
-with urllib.request.urlopen(req) as r:
-    data = json.load(r)
-print(",".join(i["key"] for i in data["issues"]))
-PYEOF
-```
-
-The output is a comma-separated list of epic keys (e.g. `CLOUD-6255,CLOUD-6288,...`).
-
-## Step 2: Fetch all active child tickets
-Use Bash to fetch tickets via the Jira REST API, substituting the epic keys from Step 1 into the JQL.
-Write and run this Python script:
-
-```bash
-set -a && source {PROJECT_DIR}/.env && set +a && python3 << 'PYEOF'
-import urllib.request, urllib.error, json, os, base64
-
-email = os.environ["ATLASSIAN_EMAIL"]
-token = os.environ["ATLASSIAN_API_TOKEN"]
-site  = os.environ["ATLASSIAN_SITE"]
-
-epic_keys = "<comma-separated epic keys from Step 1>"
-jql = f"<Step 2 JQL from radar file with epic_keys substituted in>"
-payload = json.dumps({{
-    "jql": jql,
-    "fields": ["key","summary","status","assignee","updated","priority","issuelinks","customfield_10020"],
-    "maxResults": 100
-}}).encode()
-auth = base64.b64encode(f"{{email}}:{{token}}".encode()).decode()
-req = urllib.request.Request(
-    f"https://{{site}}/rest/api/3/search/jql",
-    data=payload,
-    headers={{"Content-Type": "application/json", "Authorization": f"Basic {{auth}}"}}
-)
-with urllib.request.urlopen(req) as r:
-    data = json.load(r)
-
-result = []
-for i in data["issues"]:
-    f = i["fields"]
-    assignee = f.get("assignee") or {{}}
-    sprints = f.get("customfield_10020") or []
-    links = f.get("issuelinks") or []
-    result.append({{
-        "key": i["key"],
-        "summary": f.get("summary"),
-        "status": (f.get("status") or {{}}).get("name"),
-        "assignee": assignee.get("displayName"),
-        "assignee_id": assignee.get("accountId"),
-        "updated": f.get("updated"),
-        "priority": (f.get("priority") or {{}}).get("name"),
-        "sprint_state": "active" if any(s.get("state") == "active" for s in sprints) else "none",
-        "blockers": [l["inwardIssue"]["key"] for l in links if l.get("type", {{}}).get("inward") == "is blocked by" and "inwardIssue" in l]
-    }})
-print(json.dumps(result, indent=2))
-PYEOF
-```
-
-The output is a compact JSON array — one flat object per ticket, all fields pre-extracted.
-Use this array directly for all analysis in Step 3. Do NOT call any MCP Jira search tools for this step.
-For `user_map`: use `assignee` (displayName) and `assignee_id` (accountId) from each ticket object.
-
-## Step 3: Analyse every ticket — report all meaningful activity
-
-This is an activity feed, not just a problem detector. Surface good news too.
-
-### 3a — Status changes
-Compare each ticket's current status to Known Ticket States from last run.
-Report ALL status changes — progress is good news worth surfacing:
-- 🟢 Advanced (e.g. In Progress → In Review, In Review → Done)
-- 🔴 Regressed or newly blocked
-
-### 3b — New comment activity
-If a ticket's `updated` timestamp is newer than last run and its status has NOT changed, a comment was likely added.
-For each such ticket: call `mcp__cloudsort-jira__getJiraIssue` with the `comment` field to fetch the latest comment.
-Surface this as a type "alert" including:
-- Ticket key, title and a link: <https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Title>
-- Who commented and what they said (latest comment text, quoted)
-Do not suggest actions — Bruno will reply to this alert with instructions if needed.
-
-### 3c — Staleness check
-JIRA's `updated` field reflects ALL activity including comments and status changes — it is the single source of truth.
-Apply staleness thresholds by ticket priority:
-{staleness_info}
-- P4 tickets: never nudge
-- Tickets with no sprint assigned: never nudge — they are backlog items
-- Tickets in a future or closed sprint: never nudge
-- Only nudge tickets where the sprint field shows state = "active"
-A ticket is stale if its `updated` timestamp exceeds the threshold for its priority, relative to now ({now}), AND its sprint state is "active".
-For stale tickets: before drafting a nudge, call `mcp__cloudsort-jira__getJiraIssue` with the `comment` field to fetch the latest comments on the ticket.
-Use the most recent comment as context:
-- If the last comment already explains the delay (e.g. "waiting on design", "will finish tomorrow") — acknowledge it in the nudge rather than asking cold. Example: "Hey @[assignee] - saw your last note about [X]. Any update since then?"
-- If there are no comments or the last comment is old and vague — ask for a straightforward status update. Example: "Hey @[assignee] - no updates here in N days. What's the current status?"
-- Neutral tone throughout, not assuming there's a blocker
-- Tag the assignee by @mention (use their JIRA display name) so they get a notification
-- No comma after the @mention
-- If the ticket has no assignee: do NOT create a jira_comment draft. Instead create a type "alert" flagging that the ticket is stale and unassigned so Bruno can assign it.
-- The draft shown to Bruno must include the ticket title and a link so he knows what he's approving:
-  Format the `text` field as: "<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Ticket title>\n\nProposed comment:\n[comment text]"
-- Set `action` to "jira_comment" and `ticket_key` to the ticket key
-
-### 3d — Planning gaps
-For tickets with no sprint assigned (customfield_10020 is null or empty): create ONE SEPARATE type "alert" post per ticket. Do NOT group them into one message.
-Each alert must follow this exact format:
-"<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Ticket title> — no sprint assigned"
-Example: "<https://cloudsort.atlassian.net/browse/CLOUD-6521|CLOUD-6521: WEB: List payment methods> — no sprint assigned"
-Bruno will reply to each individual alert with instructions (e.g. "set sprint 161"). Do not nudge assignees.
-
-### 3e — Dependency chain check
-For each ticket, inspect its `issuelinks` field for blocking relationships:
-- If a ticket is blocked by another ticket and that blocker's status is now Done:
-  - Check Known Ticket States: was the blocker already Done last run? If yes, skip (already notified).
-  - If this is new: create a draft unblock notification to the assignee of the newly-unblocked ticket.
-- Use `blocker_keys` in Known Ticket States to detect changes in blocking relationships.
-
-{"### 3f — Full digest scope" if is_digest else "### 3f — Monitor scope"}
-{"Summarise ALL radar tickets grouped by epic: current status, assignee, progress, risks. This is the daily snapshot." if is_digest else "Report everything that changed or needs attention since last run. If nothing changed and nothing is stale, posts array can be empty."}
+{step1_block}
+{step2_block}
+{step3_block}
 
 ## Step 4: Write output file
 Write a JSON file at this exact absolute path: {output_file}
@@ -321,6 +279,16 @@ Full file structure:
   "posts": [
     {{ "type": "alert|draft", "text": "...", "target_channel": null or "#channel", "context": "..." }}
   ],
+  "pending_nudges": [
+    {{
+      "ticket_key": "<TICKET-KEY>",
+      "summary": "<ticket summary>",
+      "assignee": "<displayName>",
+      "priority": "<priority>",
+      "business_days_stale": "<int>",
+      "sprint_state": "active"
+    }}
+  ],
   "ticket_states": {{
     "<TICKET-KEY>": {{
       "status": "<status>",
@@ -343,6 +311,7 @@ For `user_map`: extract the `displayName` and `accountId` from every assignee fi
 - No em dashes in writing
 - Be direct and concise
 - Good news (progress, completions) is worth reporting — don't filter it out
+- Always format ticket references as Slack links: `<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Title>`
 - Write the output file now
 """
 
@@ -513,8 +482,110 @@ If the comment contains @mentions, use proper ADF mention nodes with the account
         return False
 
 
-def run_monitor_sync(cfg: dict, state: dict, run_type: str = "monitor") -> None:
-    asyncio.run(run_monitor(cfg, state, run_type))
+async def run_nudge_drafter(cfg: dict, state: dict, pending_nudges: list) -> None:
+    """Draft smart, contextual nudge comments for stale tickets using Sonnet.
+    Reads vault notes + Slack context. Writes state/nudge_output.json."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    features_vault_path = os.path.expanduser(cfg.get("features_vault_path", ""))
+    slack_channel_ids = cfg.get("slack_channel_ids", {})
+    output_file = os.path.join(PROJECT_DIR, "state", "nudge_output.json")
+
+    slack_channels_info = "\n".join(
+        f"  {name}: id={cid}, oldest={state.get('slack_cursors', {}).get(cid, '(14 days ago — first run)')}"
+        for name, cid in slack_channel_ids.items()
+    )
+    nudges_json = json.dumps(pending_nudges, indent=2)
+
+    prompt = f"""You are the AI AITPM for CloudSort. Draft smart, contextual JIRA nudge comments for stale tickets.
+
+## Current time (UTC)
+{now}
+
+## Stale tickets to nudge
+{nudges_json}
+
+## For each ticket above, follow these steps:
+
+### Step 1 — Fetch JIRA context
+Call `mcp__cloudsort-jira__getJiraIssue` on the ticket key with fields `comment,parent,customfield_10014`.
+This gives you:
+- Full comment history (what was last discussed, any blockers mentioned)
+- Parent epic key (use `parent.key` or `customfield_10014` — whichever is present)
+
+### Step 2 — Look up feature vault note
+Use Bash to search for the epic key in the vault:
+```bash
+grep -rl "CLOUD-XXXXX" {features_vault_path}/
+```
+If a file is found, read it — it contains the feature goals, stage progress, dependencies, and known blockers.
+If no file is found, call `mcp__cloudsort-jira__getJiraIssue` on the epic key with field `description` to get the feature context.
+
+### Step 3 — Read recent Slack messages
+Read each channel below for recent team discussions:
+{slack_channels_info}
+
+Use `mcp__claude_ai_Slack__slack_read_channel` with the channel ID and the `oldest` timestamp shown.
+Note the `ts` of the latest message in each channel — include these in the output as `slack_cursors`.
+If a channel has no new messages, keep the same oldest timestamp.
+
+### Step 4 — Draft the nudge comment
+Combine all context to write a specific, non-robotic comment nudging the assignee.
+
+Write in first person as the PM — do NOT use "Bruno" or refer to the author in third person.
+
+**Good (vault note + prior comments):**
+"Hey @Daniela - last note here was about waiting on design mockups for the Edit Network payment flow. Any movement there? Trying to figure out if we're still on track."
+
+**Good (comment history, no vault note):**
+"Hey @gabriel.menezes - saw your note from last week about the API shape being unclear. Did that get sorted with the backend team?"
+
+**Good (no prior context):**
+"Hey @gabriel.menezes - https://cloudsort.atlassian.net/browse/CLOUD-6427 has been quiet for 3 business days. Anything blocking the trip details page work, or is it moving along?"
+
+**Rules:**
+- Never just ask "what's the current status?" — reference something specific
+- Neutral tone — not assuming there's a problem
+- If the ticket has blockers, acknowledge them explicitly
+- No comma after @mention
+- Keep it short: 2-3 sentences max
+- No em dashes
+- Never use "Bruno" — write as first person (the comment will be posted under the PM's account)
+- When referencing a ticket by key in comment text, use the full URL: https://cloudsort.atlassian.net/browse/CLOUD-XXXX
+
+### Step 5 — Write output file
+Write JSON to: {output_file}
+
+```json
+{{
+  "posts": [
+    {{
+      "type": "draft",
+      "action": "jira_comment",
+      "text": "<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Ticket title>\\n\\nProposed comment:\\n[your drafted comment]",
+      "target_channel": null,
+      "ticket_key": "TICKET-KEY",
+      "context": "<one-line description>"
+    }}
+  ],
+  "slack_cursors": {{
+    "<channel_id>": "<latest_message_ts as string>"
+  }}
+}}
+```
+
+One post per stale ticket. Include all channel IDs in `slack_cursors`.
+"""
+
+    log.info(f"[nudge-drafter] Drafting {len(pending_nudges)} nudge(s) (model=sonnet)...")
+    await _run(prompt, _NUDGE_TOOLS, model="sonnet", max_turns=40, label="nudge-drafter")
+
+
+def run_monitor_sync(cfg: dict, state: dict, run_type: str = "monitor", epic_cache: list | None = None, child_tickets: list | None = None, is_full_fetch: bool = True) -> None:
+    asyncio.run(run_monitor(cfg, state, run_type, epic_cache=epic_cache, child_tickets=child_tickets, is_full_fetch=is_full_fetch))
+
+
+def run_nudge_drafter_sync(cfg: dict, state: dict, pending_nudges: list) -> None:
+    asyncio.run(run_nudge_drafter(cfg, state, pending_nudges))
 
 
 def run_revision_sync(original_draft: str, feedback: str, context: str) -> str | None:
