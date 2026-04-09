@@ -244,7 +244,7 @@ Each item in `posts` is one of two types:
 Use for: status changes, comment activity, staleness alerts, digest summaries — anything Bruno should know about but that doesn't require a team message right now.
 {{
   "type": "alert",
-  "text": "<message — concise, no em dashes>",
+  "text": "<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Ticket title> — <concise message, no em dashes>",
   "target_channel": null,
   "context": "<one-line description>"
 }}
@@ -301,7 +301,6 @@ Do NOT include `ticket_states` in the output — Python builds this directly fro
 - No em dashes in writing
 - Be direct and concise
 - Good news (progress, completions) is worth reporting — don't filter it out
-- Always format ticket references as Slack links: `<https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Title>`
 - Write the output file now
 """
 
