@@ -9,7 +9,7 @@ aitpm_name: "Alex AI TPM"            # AI TPM identity — the TPM's digital twi
 
 # Jira
 jira_project_key: PROJ               # Your Jira project key (e.g. CLOUD, ENG, APP)
-jira_radar_file: ~/path/to/radar.md  # Markdown file containing Step 1 JQL and radar context
+jira_radar_file: ~/path/to/radar.md  # Your radar file — see configs/radar_template.md for the expected format
 
 # Slack
 tpm_slack_user_id: ""                # TPM's Slack user ID — find it: click your name → View profile → More → Copy member ID
