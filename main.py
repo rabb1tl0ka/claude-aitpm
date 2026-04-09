@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.config import load_config, get_project_dir
-from src.state import load_state, save_state, update_slack_cursors, load_epic_cache, save_epic_cache
+from src.state import load_state, save_state, update_slack_cursors, load_epic_cache, save_epic_cache, fetch_epic_keys, fetch_child_tickets
 from src.agents import run_monitor_sync, run_nudge_drafter_sync, run_revision_sync, run_command_sync, run_jira_comment_sync
 from src.slack_client import (
     post_message, add_reaction, get_channel_history,
@@ -63,22 +63,28 @@ def run_monitor(cfg: dict, state: dict, run_type: str, log: logging.Logger, refr
     project_dir = get_project_dir()
     output_file = os.path.join(project_dir, "state", "monitor_output.json")
 
-    # Load epic cache — None if missing or refresh forced
+    # Resolve epic keys — Python fetches if no cache or refresh forced
     epic_cache = None if refresh_cache else load_epic_cache(project_dir)
     if epic_cache:
-        log.info(f"[monitor] Epic cache hit: {len(epic_cache)} epics. Skipping Step 1 fetch.")
+        log.info(f"[monitor] Epic cache hit: {len(epic_cache)} epics.")
     else:
         reason = "--refresh-cache" if refresh_cache else "no cache"
-        log.info(f"[monitor] Epic cache miss ({reason}). Step 1 will fetch fresh.")
+        log.info(f"[monitor] Epic cache miss ({reason}). Fetching from Jira...")
+        epic_cache = fetch_epic_keys(cfg, project_dir)
+        log.info(f"[monitor] Fetched {len(epic_cache)} epic keys from Jira, cache saved.")
 
-    is_full_fetch = run_type == "digest" or refresh_cache or state.get("last_monitor_run") is None or epic_cache is None
+    is_full_fetch = run_type == "digest" or refresh_cache or state.get("last_monitor_run") is None
     log.info(f"[monitor] Fetch mode: {'FULL' if is_full_fetch else 'INCREMENTAL'}")
+
+    # Fetch child tickets — deterministic Python, not LLM
+    child_tickets = fetch_child_tickets(epic_cache, last_run=state.get("last_monitor_run"), is_full_fetch=is_full_fetch)
+    log.info(f"[monitor] Fetched {len(child_tickets)} child tickets.")
 
     # Clean up previous output
     if os.path.isfile(output_file):
         os.remove(output_file)
 
-    run_monitor_sync(cfg, state, run_type, epic_cache=epic_cache, is_full_fetch=is_full_fetch)
+    run_monitor_sync(cfg, state, run_type, epic_cache=epic_cache, child_tickets=child_tickets, is_full_fetch=is_full_fetch)
 
     if not os.path.isfile(output_file):
         log.warning(f"[monitor] Agent finished but no output file found.")
@@ -110,8 +116,18 @@ def run_monitor(cfg: dict, state: dict, run_type: str, log: logging.Logger, refr
     aitpm_channel = cfg["slack_aitpm_channel"]
     channel_id = resolve_channel(aitpm_channel)
 
-    # Update ticket states
-    state["ticket_states"] = output.get("ticket_states", state.get("ticket_states", {}))
+    # Update ticket states — deterministic merge in Python (not LLM)
+    fresh = output.get("ticket_states", {})
+    if is_full_fetch:
+        # Full fetch: replace entirely
+        state["ticket_states"] = fresh
+        log.info(f"[monitor] ticket_states replaced: {len(fresh)} tickets (full fetch)")
+    else:
+        # Incremental: preserve existing, overwrite with fresh
+        existing = state.get("ticket_states", {})
+        merged = {**existing, **fresh}
+        state["ticket_states"] = merged
+        log.info(f"[monitor] ticket_states merged: {len(fresh)} fresh + {len(existing) - len(set(existing) & set(fresh))} preserved = {len(merged)} total")
 
     # Merge any newly discovered users into the user map
     new_users = output.get("user_map", {})

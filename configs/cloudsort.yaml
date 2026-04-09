@@ -36,3 +36,12 @@ schedule:
   timezone: "Europe/Lisbon"
   work_hours_start: 8
   work_hours_end: 21
+
+# Monitor agent features — toggle each Step 3 analysis block on/off
+monitor_features:
+  status_changes: true       # 3a: surface status advances and regressions
+  comment_activity: true     # 3b: fetch and surface new Jira comments
+  staleness: true            # 3c: nudge stale tickets based on priority thresholds
+  planning_gaps: false        # 3d: flag tickets with no sprint assigned
+  dependency_chains: true    # 3e: detect unblocked tickets when blockers are resolved
+  scope_summary: false        # 3f: digest summary or monitor scope report
