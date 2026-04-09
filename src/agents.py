@@ -11,6 +11,8 @@ from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, AssistantMessage, query
 
+from .state import fetch_ticket_details
+
 log = logging.getLogger("aitpm")
 
 PROJECT_DIR = str(Path(__file__).parent.parent)
@@ -38,7 +40,7 @@ _COMMAND_TOOLS = [
 ]
 
 _NUDGE_TOOLS = [
-    "mcp__cloudsort-jira__getJiraIssue",
+    "mcp__cloudsort-jira__getJiraIssue",  # Step 2: epic description fallback when no vault note found
     "mcp__claude_ai_Slack__slack_read_channel",
     "Bash",
     "Read",
@@ -131,6 +133,33 @@ async def run_monitor(cfg: dict, state: dict, run_type: str = "monitor", epic_ca
 
     output_file = os.path.join(PROJECT_DIR, "state", "monitor_output.json")
 
+    # Pre-fetch comments for comment_activity: tickets updated since last_run with status unchanged
+    comment_data: dict = {}
+    if feats.get("comment_activity", True) and last_run != "never" and child_tickets:
+        prev_ticket_states = state.get("ticket_states", {})
+        try:
+            last_run_dt = datetime.fromisoformat(last_run).replace(tzinfo=timezone.utc) if last_run != "never" else None
+        except ValueError:
+            last_run_dt = None
+        if last_run_dt:
+            activity_keys = []
+            for t in child_tickets:
+                updated_str = t.get("updated")
+                if not updated_str:
+                    continue
+                try:
+                    updated_dt = datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                if updated_dt <= last_run_dt:
+                    continue
+                prev_status = prev_ticket_states.get(t["key"], {}).get("status")
+                if prev_status and t["status"] == prev_status:
+                    activity_keys.append(t["key"])
+            if activity_keys:
+                log.info(f"[monitor] Pre-fetching comments for {len(activity_keys)} tickets with new activity...")
+                comment_data = fetch_ticket_details(activity_keys, fields=["comment"])
+
     # Step 1 is resolved by Python before the agent runs — epic_cache is always populated here
     epic_keys_str = ",".join(epic_cache)
     step1_block = f"""## Step 1: Epic keys (pre-resolved)
@@ -161,13 +190,22 @@ Report ALL status changes — progress is good news worth surfacing:
 - 🔴 Regressed or newly blocked""")
 
     if feats.get("comment_activity", True):
-        step3_sections.append("""### New comment activity
-If a ticket's `updated` timestamp is newer than last run and its status has NOT changed, a comment was likely added.
-For each such ticket: call `mcp__cloudsort-jira__getJiraIssue` with the `comment` field to fetch the latest comment.
-Surface this as a type "alert" including:
+        if comment_data:
+            comment_data_json = json.dumps(comment_data, indent=2)
+            step3_sections.append(f"""### New comment activity (pre-fetched)
+The Python runner already identified tickets updated since last run with no status change, and fetched their latest comments. Do NOT call getJiraIssue for these.
+
+```json
+{comment_data_json}
+```
+
+For each ticket in the above data that has a `latest_comment`: surface it as a type "alert" including:
 - Ticket key, title and a link: <https://cloudsort.atlassian.net/browse/TICKET-KEY|TICKET-KEY: Title>
 - Who commented and what they said (latest comment text, quoted)
 Do not suggest actions — Bruno will reply to this alert with instructions if needed.""")
+        else:
+            step3_sections.append("""### New comment activity
+No tickets with new comment activity detected (either no updates since last run, or all updates were status changes). Skip this section.""")
 
     if feats.get("staleness", True):
         step3_sections.append(f"""### Staleness check
@@ -479,6 +517,12 @@ async def run_nudge_drafter(cfg: dict, state: dict, pending_nudges: list) -> Non
     slack_channel_ids = cfg.get("slack_channel_ids", {})
     output_file = os.path.join(PROJECT_DIR, "state", "nudge_output.json")
 
+    # Pre-fetch JIRA context (comment history + parent/epic) for all stale tickets
+    nudge_keys = [t["key"] for t in pending_nudges]
+    log.info(f"[nudge-drafter] Pre-fetching JIRA context for {len(nudge_keys)} ticket(s)...")
+    ticket_details = fetch_ticket_details(nudge_keys)
+    ticket_details_json = json.dumps(ticket_details, indent=2)
+
     slack_channels_info = "\n".join(
         f"  {name}: id={cid}, oldest={state.get('slack_cursors', {}).get(cid, '(14 days ago — first run)')}"
         for name, cid in slack_channel_ids.items()
@@ -495,11 +539,17 @@ async def run_nudge_drafter(cfg: dict, state: dict, pending_nudges: list) -> Non
 
 ## For each ticket above, follow these steps:
 
-### Step 1 — Fetch JIRA context
-Call `mcp__cloudsort-jira__getJiraIssue` on the ticket key with fields `comment,parent,customfield_10014`.
-This gives you:
-- Full comment history (what was last discussed, any blockers mentioned)
-- Parent epic key (use `parent.key` or `customfield_10014` — whichever is present)
+### Step 1 — JIRA context (pre-fetched)
+The Python runner already fetched comment history and parent/epic info for each ticket. Do NOT call getJiraIssue.
+
+```json
+{ticket_details_json}
+```
+
+Each entry contains:
+- `full_comments`: full comment history (what was last discussed, any blockers mentioned)
+- `latest_comment`: the most recent comment
+- `parent_key`: the parent epic key
 
 ### Step 2 — Look up feature vault note
 Use Bash to search for the epic key in the vault:

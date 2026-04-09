@@ -2,10 +2,13 @@
 
 import base64
 import json
+import logging
 import os
 import re
 import urllib.request
 from datetime import date, datetime, timezone, timedelta
+
+log = logging.getLogger("aitpm")
 
 
 def _state_path(project_dir: str) -> str:
@@ -148,6 +151,82 @@ def tickets_to_states(tickets: list) -> dict:
         }
         for t in tickets
     }
+
+
+def fetch_ticket_details(ticket_keys: list, fields: list | None = None) -> dict:
+    """Fetch comment history and parent/epic info for a list of ticket keys.
+
+    Makes one REST call per key: GET /rest/api/3/issue/{key}?fields=...
+    Returns {key: {latest_comment, full_comments, parent_key}} for each key
+    that succeeds. Keys that fail are logged and skipped (no exception raised).
+    """
+    if not ticket_keys:
+        return {}
+    if fields is None:
+        fields = ["comment", "parent", "customfield_10014"]
+
+    email = os.environ["ATLASSIAN_EMAIL"]
+    token = os.environ["ATLASSIAN_API_TOKEN"]
+    site = os.environ["ATLASSIAN_SITE"]
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+    fields_param = ",".join(fields)
+
+    result = {}
+    for key in ticket_keys:
+        url = f"https://{site}/rest/api/3/issue/{key}?fields={fields_param}"
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"Basic {auth}", "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req) as r:
+                data = json.load(r)
+        except Exception as e:
+            log.error(f"[fetch_ticket_details] Failed to fetch {key}: {e}")
+            continue
+
+        f = data.get("fields", {})
+        comments_raw = (f.get("comment") or {}).get("comments", [])
+        parent_key = None
+        if f.get("parent"):
+            parent_key = f["parent"].get("key")
+        elif f.get("customfield_10014"):
+            parent_key = f["customfield_10014"]
+
+        full_comments = [
+            {
+                "author": (c.get("author") or {}).get("displayName"),
+                "body": _extract_comment_text(c.get("body")),
+                "created": c.get("created"),
+            }
+            for c in comments_raw
+        ]
+        latest_comment = full_comments[-1] if full_comments else None
+
+        result[key] = {
+            "latest_comment": latest_comment,
+            "full_comments": full_comments,
+            "parent_key": parent_key,
+        }
+    return result
+
+
+def _extract_comment_text(body) -> str:
+    """Extract plain text from a Jira ADF comment body (or return as-is if string)."""
+    if body is None:
+        return ""
+    if isinstance(body, str):
+        return body
+    # ADF format — walk content nodes and collect text
+    parts = []
+    def _walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "text":
+                parts.append(node.get("text", ""))
+            for child in node.get("content", []):
+                _walk(child)
+    _walk(body)
+    return " ".join(parts).strip()
 
 
 def fetch_child_tickets(epic_keys: list, last_run: str | None = None, is_full_fetch: bool = True) -> list:
