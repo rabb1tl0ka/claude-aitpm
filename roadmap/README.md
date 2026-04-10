@@ -38,6 +38,7 @@ Implemented or rejected specs live in `archived/`. Move a file there when it's d
 |---|---|
 | [feat-generic-aitpm.md](archived/feat-generic-aitpm.md) | Implemented |
 | [feat-python-diff-precompute.md](archived/feat-python-diff-precompute.md) | Implemented |
+| [feat-python-prefetch-comments.md](archived/feat-python-prefetch-comments.md) | Implemented |
 
 ## Templates
 
