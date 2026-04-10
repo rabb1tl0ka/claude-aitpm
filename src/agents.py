@@ -539,7 +539,7 @@ async def run_nudge_drafter(cfg: dict, state: dict, pending_nudges: list) -> Non
     output_file = os.path.join(PROJECT_DIR, "state", "nudge_output.json")
 
     # Pre-fetch JIRA context (comment history + parent/epic) for all stale tickets
-    nudge_keys = [t["key"] for t in pending_nudges]
+    nudge_keys = [t["ticket_key"] for t in pending_nudges]
     log.info(f"[nudge-drafter] Pre-fetching JIRA context for {len(nudge_keys)} ticket(s)...")
     ticket_details = fetch_ticket_details(nudge_keys)
     ticket_details_json = json.dumps(ticket_details, indent=2)
