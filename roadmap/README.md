@@ -23,11 +23,21 @@ For `idea-` and `challenge-` files, contributions can be a PR that evolves the f
 
 | File | Type | Summary |
 |---|---|---|
-| [feat-python-diff-precompute.md](feat-python-diff-precompute.md) | Feature | Pre-compute ticket diff in Python before agent runs — saves ~2-3k tokens per incremental monitor run |
+| [feat-team-aitpm.md](feat-team-aitpm.md) | Feature | Expose the bot to the full team on Slack with rate limiting and TPM approval gate |
 | [idea-on-demand-digest.md](idea-on-demand-digest.md) | Idea | Replace scheduled 8AM digest with on-demand `@aitpm digest` command |
 | [idea-deduplicate-alerts.md](idea-deduplicate-alerts.md) | Idea | Skip re-alerting on tickets already in pending_drafts to reduce Slack noise |
 | [idea-reply-to-any-alert.md](idea-reply-to-any-alert.md) | Idea | Turn every bot message into an actionable thread — reply with free-form instructions |
+| [idea-team-query-cache.md](idea-team-query-cache.md) | Idea | Cache team @aitpm responses to avoid redundant agent runs |
 | [challenge-slack-mcp-unavailable-in-subagents.md](challenge-slack-mcp-unavailable-in-subagents.md) | Challenge | Slack MCP not accessible in SDK subagents — nudges drafted from Jira context only |
+
+## Archived
+
+Implemented or rejected specs live in `archived/`. Move a file there when it's done — no deletion.
+
+| File | Status |
+|---|---|
+| [feat-generic-aitpm.md](archived/feat-generic-aitpm.md) | Implemented |
+| [feat-python-diff-precompute.md](archived/feat-python-diff-precompute.md) | Implemented |
 
 ## Templates
 
