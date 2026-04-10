@@ -454,7 +454,7 @@ def main():
                 (now - last_monitor_run).total_seconds() >= monitor_interval_min * 60
             ):
                 log.info("Running hourly monitor...")
-                run_monitor(cfg, state, run_type="monitor", log=log)
+                run_monitor(cfg, state, run_type="monitor", log=log, refresh_cache=args.refresh_cache)
                 last_monitor_run = now
 
             # Approval poll + inbound check
