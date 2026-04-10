@@ -433,12 +433,14 @@ async def run_command(cfg: dict, state: dict, command_text: str) -> dict | None:
         indent=2
     ) if pending_drafts else "None"
 
+    atlassian_site = os.environ["ATLASSIAN_SITE"]
     prompt = f"""You are {aitpm_name} for {cfg['project_name']}. {tpm_name} sent you a command via Slack.
 Respond as you would in a full Claude Code session — you have complete project context below.
 
 ## Context
 - Project: {cfg['project_name']}
 - JIRA project key: {cfg['jira_project_key']}
+- JIRA cloudId: {atlassian_site}
 - Current time (UTC): {now}
 - Staleness thresholds: P1={staleness_thresholds.get('P1')}d, P2={staleness_thresholds.get('P2')}d, P3={staleness_thresholds.get('P3')}d, P4=none
 - Last monitor run: {state.get("last_monitor_run") or "never"}
@@ -463,7 +465,7 @@ Respond as you would in a full Claude Code session — you have complete project
 
 ## Instructions
 1. Understand what {tpm_name} is asking — answer it fully, same as you would in a Claude Code session
-2. Use `mcp__cloudsort-jira__searchJiraIssuesUsingJql` or `mcp__cloudsort-jira__getJiraIssue` as needed — do NOT call getAccessibleAtlassianResources first
+2. Use `mcp__cloudsort-jira__searchJiraIssuesUsingJql` or `mcp__cloudsort-jira__getJiraIssue` as needed — use the cloudId from Context above, do NOT call getAccessibleAtlassianResources
 3. JIRA comment replies have a `parentId` field but appear in the same flat list — look at ALL comments to find all activity
 4. If {tpm_name} asks you to comment on a ticket or transition it, do it directly using the available tools
 5. Write your response to this exact absolute path: {output_file}
