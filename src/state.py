@@ -163,7 +163,7 @@ def fetch_ticket_details(ticket_keys: list, fields: list | None = None) -> dict:
     if not ticket_keys:
         return {}
     if fields is None:
-        fields = ["comment", "parent", "customfield_10014"]
+        fields = ["comment", "parent", "customfield_10014", "description", "summary"]
 
     email = os.environ["ATLASSIAN_EMAIL"]
     token = os.environ["ATLASSIAN_API_TOKEN"]
@@ -204,6 +204,8 @@ def fetch_ticket_details(ticket_keys: list, fields: list | None = None) -> dict:
         latest_comment = full_comments[-1] if full_comments else None
 
         result[key] = {
+            "summary": f.get("summary"),
+            "description": _extract_comment_text(f.get("description")),
             "latest_comment": latest_comment,
             "full_comments": full_comments,
             "parent_key": parent_key,

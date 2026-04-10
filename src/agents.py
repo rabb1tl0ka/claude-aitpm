@@ -568,6 +568,8 @@ The Python runner already fetched comment history and parent/epic info for each 
 ```
 
 Each entry contains:
+- `summary`: ticket title
+- `description`: full ticket description (acceptance criteria, open questions, decisions already made)
 - `full_comments`: full comment history (what was last discussed, any blockers mentioned)
 - `latest_comment`: the most recent comment
 - `parent_key`: the parent epic key
