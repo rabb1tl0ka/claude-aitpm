@@ -44,6 +44,6 @@ Implemented or rejected specs live in `archived/`. Move a file there when it's d
 
 | File | Use for |
 |---|---|
-| [template-feat.md](template-feat.md) | Fully specced features ready to implement |
-| [template-idea.md](template-idea.md) | Early-stage ideas to explore |
-| [template-challenge.md](template-challenge.md) | Known problems with open solutions |
+| [templates/template-feat.md](templates/template-feat.md) | Fully specced features ready to implement |
+| [templates/template-idea.md](templates/template-idea.md) | Early-stage ideas to explore |
+| [templates/template-challenge.md](templates/template-challenge.md) | Known problems with open solutions |
