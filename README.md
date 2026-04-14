@@ -202,3 +202,7 @@ Built automatically — every monitor run extracts accountIds from ticket assign
 - User map (displayName to accountId)
 
 Delete `state/state.json` to force a full re-evaluation on next run.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, local dev workflow, and how to pick up a roadmap item.
