@@ -1,0 +1,43 @@
+{
+  "last_monitor_run": "2026-04-13T08:00:00Z",
+  "ticket_states": {
+    "CLOUD-100": {
+      "status": "In Progress",
+      "assignee": "Luis Carvalho",
+      "summary": "Fix supplier webhook: store requirements on fire",
+      "last_updated": "2026-04-09T10:00:00Z",
+      "priority": "P1",
+      "blocker_keys": [],
+      "sprint_state": "active"
+    },
+    "CLOUD-101": {
+      "status": "Done",
+      "assignee": "João Pedro Fontes",
+      "summary": "Fix buyer webhook: listen to platform account events",
+      "last_updated": "2026-04-08T14:00:00Z",
+      "priority": "P1",
+      "blocker_keys": [],
+      "sprint_state": "active"
+    },
+    "CLOUD-102": {
+      "status": "In Review",
+      "assignee": "Kristina Bazgaloska",
+      "summary": "Address redaction: hide gateway addresses before purchase",
+      "last_updated": "2026-04-09T09:00:00Z",
+      "priority": "P1",
+      "blocker_keys": [],
+      "sprint_state": "active"
+    },
+    "CLOUD-103": {
+      "status": "To Do",
+      "assignee": null,
+      "summary": "Buyer payment prompt in purchase flow",
+      "last_updated": "2026-04-07T08:00:00Z",
+      "priority": "P2",
+      "blocker_keys": ["CLOUD-101"],
+      "sprint_state": "active"
+    }
+  },
+  "pending_drafts": [],
+  "pending_tlu": null
+}

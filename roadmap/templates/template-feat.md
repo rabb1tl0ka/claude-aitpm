@@ -1,11 +1,15 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Feature Spec: [Title]
 
-## Branch
-
-Implement in a new branch off `main`: `feat-[slug]`
+## One-Line Overview
+One crisp sentence that describes the problem + the proposed solution and its core benefit.
 
 ## Goal
-
 What this feature does. One paragraph, no benefits yet — just what it is.
 
 ## Expected advantages / benefits
@@ -40,9 +44,9 @@ The detailed implementation — logic, data structures, API contracts, prompt ch
 
 ## Changes required
 
-| File | Change |
-|---|---|
-| `src/foo.py` | Add `bar()` function |
+| File       | Change                          |
+|------------|---------------------------------|
+| `src/foo.py` | Add `bar()` function          |
 
 ---
 

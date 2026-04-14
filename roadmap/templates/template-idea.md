@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Idea: [Title]
+
+## One-Line Overview
+One crisp sentence that captures the core idea, the problem it addresses, and its potential impact.
 
 ## What's the idea
 

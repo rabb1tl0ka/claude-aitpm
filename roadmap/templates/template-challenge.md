@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Challenge: [Title]
+
+## One-Line Overview
+One crisp sentence that describes the problem, why it matters, and the general direction toward a solution.
 
 ## What's the problem
 
@@ -16,9 +25,9 @@ What any solution must or must not do:
 
 ## Approaches considered
 
-| Approach | Status | Why ruled out / still open |
-|---|---|---|
-| ... | Ruled out / Open | ... |
+| Approach | Status       | Why ruled out / still open |
+|----------|--------------|----------------------------|
+| ...      | Ruled out / Open | ...                        |
 
 ## Open questions
 
