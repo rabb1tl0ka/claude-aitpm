@@ -34,6 +34,8 @@ Step-by-step description of how things will work after this feature.
 - `src/foo.py` — brief description of what changes
 - `main.py` — brief description of what changes
 
+**Branch:** `feat/<slug>`
+
 ---
 
 ## Design
