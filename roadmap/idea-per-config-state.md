@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Idea: Per-Config State Files
+
+## One-Line Overview
+Split the shared state.json into per-config files to eliminate cross-project state collisions as AI TPM expands to multiple projects.
 
 ## Problem
 

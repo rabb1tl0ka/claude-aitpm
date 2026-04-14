@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Idea: TLU Generation — Slack Channel History as Data Source
+
+## One-Line Overview
+Enrich TLU generation by injecting the past week's Slack channel history alongside Jira state and meeting notes, capturing decisions that never make it into Jira.
 
 ## Problem
 

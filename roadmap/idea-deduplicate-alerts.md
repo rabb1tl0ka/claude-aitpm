@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Idea: Deduplicate alerts against pending_drafts
+
+## One-Line Overview
+Prevent duplicate alerts from firing on every fetch run by checking pending_drafts before generating new alerts for the same ticket.
 
 ## What's the idea
 

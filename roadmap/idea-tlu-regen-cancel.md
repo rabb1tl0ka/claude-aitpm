@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Idea: TLU Regen — Cancel In-Progress TLU
+
+## One-Line Overview
+Allow cancelling an in-progress TLU and regenerating without manually editing state.json, by detecting regen intent and offering a cancel+regen flow.
 
 ## Problem
 

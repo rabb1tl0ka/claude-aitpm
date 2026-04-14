@@ -1,4 +1,13 @@
+---
+status: todo
+priority: high
+owner: ""
+---
+
 # Challenge: Slack MCP not available in SDK subagents
+
+## One-Line Overview
+Identify why Slack MCP tools are inaccessible in SDK subagents and find a path to giving them Slack context for higher-quality nudges.
 
 ## What's the problem
 

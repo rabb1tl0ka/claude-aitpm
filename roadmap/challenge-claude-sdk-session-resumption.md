@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Challenge: Claude Code SDK Session Resumption
+
+## One-Line Overview
+Determine whether the Claude Code SDK supports session resumption so TLU revision agents can maintain cross-section consistency after partial approvals.
 
 ## Context
 

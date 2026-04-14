@@ -1,4 +1,13 @@
+---
+status: done
+priority: high
+owner: "@rabb1tl0ka"
+---
+
 # Feature Spec: TLU Generation
+
+## One-Line Overview
+Enable the AI TPM to generate weekly Traffic Light Updates on demand, pulling Jira + meeting notes, posting sections to Slack for approval, then pushing to Notion.
 
 ## Branch
 

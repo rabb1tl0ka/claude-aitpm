@@ -1,4 +1,13 @@
+---
+status: todo
+priority: low
+owner: ""
+---
+
 # Idea: Per-Agent Model Config
+
+## One-Line Overview
+Let users override the Claude model per agent in the project config YAML, eliminating hardcoded model selections in source code.
 
 ## Problem
 

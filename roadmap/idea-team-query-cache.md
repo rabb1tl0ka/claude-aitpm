@@ -1,4 +1,13 @@
+---
+status: todo
+priority: low
+owner: ""
+---
+
 # Idea: Team Query Response Cache
+
+## One-Line Overview
+Cache team query responses by normalized prompt to avoid redundant agent runs when multiple people ask similar questions.
 
 ## Context
 When the AI TPM is exposed to the team via Slack, multiple people may ask the same or similar questions. Caching responses avoids redundant agent runs and speeds up repeat queries.

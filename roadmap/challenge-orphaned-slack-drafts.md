@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Challenge: Orphaned Slack Draft Messages
+
+## One-Line Overview
+Solve Slack draft messages becoming orphaned after state resets, causing silent failures or confusion when Bruno tries to approve them.
 
 ## Problem
 
