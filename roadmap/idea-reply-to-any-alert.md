@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Idea: Reply to any bot message to trigger an action
+
+## One-Line Overview
+Make every bot-posted Slack message an actionable thread so Bruno can reply with free-form instructions without needing @aitpm syntax.
 
 ## What's the idea
 

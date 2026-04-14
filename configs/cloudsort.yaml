@@ -1,7 +1,7 @@
 project_name: "CloudSort"
 tpm_name: "Bruno"           # TPM's display name — used in first-person nudge comments and approval context
 aitpm_name: "Bruno AI TPM"  # AI TPM identity — the TPM's digital twin, used in agent persona and Slack replies
-tpm_slack_user_id: ""  # TPM's Slack user ID (e.g. U02GXNG41GE) Find it in Slack: click your name → View profile → More (three dots) → Copy member ID.
+tpm_slack_user_id: "U08AC75F3S5"  # TPM's Slack user ID (e.g. U02GXNG41GE) Find it in Slack: click your name → View profile → More (three dots) → Copy member ID.
 jira_project_key: "CLOUD"
 jira_radar_file: "~/loka/vaults/loka2026/projects/cloudsort/jb/jb-watching-radar.md"
 staleness_thresholds:
@@ -26,6 +26,14 @@ slack_channel_ids:
 # Path to feature vault notes (one .md per feature, each contains its JIRA epic key)
 features_vault_path: ~/loka/vaults/loka2026/projects/cloudsort/jb/features
 
+# Local project vault — used for TLU generation (meeting notes, traffic lights)
+project_notes_path: ~/loka/vaults/loka2026/projects/cloudsort
+
+# Notion TLU — set to the most recent TLU page URL to enable Notion push.
+# Leave empty to skip Notion push (sections are approved locally, local file is the output).
+# Once a Notion API token is available and configured as a user MCP, set this URL to re-enable.
+notion_last_tlu_page_url: ""
+
 # Sprint info — update manually each sprint
 sprint:
   name: ""
@@ -33,7 +41,7 @@ sprint:
   end: ""
 
 schedule:
-  monitor_interval_min: 60
+  monitor_interval_min: 5
   approval_interval_min: 1
   timezone: "Europe/Lisbon"
   work_hours_start: 8

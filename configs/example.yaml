@@ -30,6 +30,13 @@ slack_channel_ids:                   # Channel IDs for reading history via MCP (
 # Feature vault — one .md file per epic, each containing its Jira epic key
 features_vault_path: ~/path/to/features/vault
 
+# Local project vault — used for TLU generation (meeting notes, traffic lights)
+project_notes_path: ~/path/to/your/project/vault
+
+# Notion TLU — copy URL of the most recent TLU page from your browser.
+# Used to scope Notion searches to this project's TLU DB only. Updated automatically after each push.
+notion_last_tlu_page_url: ""   # e.g. "https://www.notion.so/yourworkspace/Apr-13-33f46e8c24378185934bca03f02c0369"
+
 # Sprint info — update manually each sprint
 sprint:
   name: ""                           # e.g. "Sprint 42"

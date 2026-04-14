@@ -6,12 +6,22 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, AssistantMessage, query
 
 from .state import fetch_ticket_details
+from .config import get_project_notes_path, parse_notion_page_id
+from .tlu import (
+    discover_meeting_notes,
+    tlu_local_path,
+    extract_tlu_section,
+    next_pending_section,
+    _SECTION_HEADINGS,
+    _SECTION_ORDER,
+    is_state_fresh,
+)
 
 log = logging.getLogger("aitpm")
 
@@ -45,6 +55,17 @@ _NUDGE_TOOLS = [
     "Bash",
     "Read",
     "Glob",
+    "Write",
+]
+
+_TLU_GENERATION_TOOLS = [
+    "Write",
+]
+
+_TLU_NOTION_PUSH_TOOLS = [
+    "mcp__claude_ai_Notion__notion-fetch",
+    "mcp__claude_ai_Notion__notion-update-page",
+    "Read",
     "Write",
 ]
 
@@ -403,6 +424,74 @@ async def run_revision(cfg: dict, original_draft: str, feedback: str, context: s
     return None
 
 
+async def run_tlu_revision(
+    cfg: dict,
+    state: dict,
+    section_key: str,
+    original_section: str,
+    feedback: str,
+) -> str | None:
+    """Revise a TLU section based on feedback, using only cached Jira state.
+
+    No Jira MCP calls — all ticket context comes from state["ticket_states"].
+    Returns the revised section text or None on failure.
+    """
+    tpm_name = cfg.get("tpm_name", "the PM")
+    aitpm_name = cfg.get("aitpm_name", "AI TPM")
+    output_file = os.path.join(PROJECT_DIR, "state", "revision_output.json")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Load TLU template
+    template_path = os.path.join(PROJECT_DIR, "templates", "tlu-template.md")
+    tlu_template = ""
+    if os.path.exists(template_path):
+        with open(template_path) as f:
+            tlu_template = f.read()
+
+    ticket_states = json.dumps(state.get("ticket_states", {}), indent=2)
+
+    prompt = f"""You are {aitpm_name} for {cfg['project_name']}. Revise a TLU section based on {tpm_name}'s feedback.
+
+## IMPORTANT: Do NOT make any Jira API calls.
+All Jira context is provided below in "Cached Jira State". Use that data only.
+
+## TLU Writing Template
+{tlu_template if tlu_template else "(use standard TLU format)"}
+
+## Cached Jira State (last monitor run — use this, do not query Jira)
+{ticket_states}
+
+## Original TLU section ({section_key})
+{original_section}
+
+## {tpm_name}'s feedback
+{feedback}
+
+## Instructions
+1. Cross-check the section against the cached Jira state if needed
+2. Apply {tpm_name}'s feedback
+3. Follow the TLU Writing Template strictly — business-focused prose, correct emoji format, no ticket IDs as content, no em dashes
+4. Write ONLY the revised section text — not the full TLU, just this section
+5. Write the result to this exact path: {output_file}
+{{
+  "revised_text": "<full revised section text>",
+  "revised_at": "{now}"
+}}
+"""
+
+    if os.path.isfile(output_file):
+        os.remove(output_file)
+
+    await _run(prompt, ["Write"], model="sonnet", max_turns=5, label="tlu-revision")
+
+    if os.path.isfile(output_file):
+        with open(output_file) as f:
+            result = json.load(f)
+        os.remove(output_file)
+        return result.get("revised_text")
+    return None
+
+
 async def run_command(cfg: dict, state: dict, command_text: str) -> dict | None:
     """Handle an @aitpm command. Returns result dict or None."""
     tpm_name = cfg.get("tpm_name", "the PM")
@@ -650,6 +739,235 @@ One post per stale ticket. Include all channel IDs in `slack_cursors`.
     await _run(prompt, _NUDGE_TOOLS, model="sonnet", max_turns=40, label="nudge-drafter")
 
 
+async def run_tlu_generation(cfg: dict, state: dict, week_start: date, week_end: date) -> dict | None:
+    """Generate a TLU for the given Mon-Fri week.
+
+    Steps:
+    1. Gather context: Jira state + meeting notes for the week
+    2. Load last 2 TLUs from vault as format reference
+    3. Spawn agent to generate TLU content → writes local file + tlu_output.json
+    4. Find the Notion page for the target week (via last known page → parent DB → search)
+    5. Return pending_tlu dict ready to be saved into state
+    """
+    tpm_name = cfg.get("tpm_name", "the PM")
+    aitpm_name = cfg.get("aitpm_name", "AI TPM")
+    project_name = cfg.get("project_name", "the project")
+    notes_path = get_project_notes_path(cfg)
+    output_file = os.path.join(PROJECT_DIR, "state", "tlu_output.json")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if os.path.exists(output_file):
+        os.remove(output_file)
+
+    # --- Gather meeting notes ---
+    meeting_notes_content = ""
+    if notes_path:
+        note_files = discover_meeting_notes(notes_path, week_start, week_end)
+        if note_files:
+            parts = []
+            for fpath in note_files:
+                with open(fpath) as f:
+                    parts.append(f"### {os.path.basename(fpath)}\n{f.read()}")
+            meeting_notes_content = "\n\n---\n\n".join(parts)
+            log.info(f"[tlu] Found {len(note_files)} meeting note(s) for {week_start} to {week_end}")
+        else:
+            log.info(f"[tlu] No meeting notes found for {week_start} to {week_end}")
+
+    # --- Load last 2 TLUs as format reference ---
+    format_reference = ""
+    if notes_path:
+        tlu_dir = os.path.join(notes_path, "traffic-lights")
+        if os.path.isdir(tlu_dir):
+            tlu_files = sorted(
+                [f for f in os.listdir(tlu_dir) if f.endswith(".md")],
+                reverse=True,
+            )[:2]
+            if tlu_files:
+                parts = []
+                for fname in tlu_files:
+                    with open(os.path.join(tlu_dir, fname)) as f:
+                        parts.append(f"### {fname}\n{f.read()}")
+                format_reference = "\n\n---\n\n".join(parts)
+
+    # --- Jira ticket state ---
+    ticket_states = json.dumps(state.get("ticket_states", {}), indent=2)
+
+    # --- Sprint info ---
+    sprint_info = ""
+    s = cfg.get("sprint", {})
+    if s.get("name"):
+        sprint_info = f"Current sprint: {s['name']} ({s.get('start', '?')} to {s.get('end', '?')})"
+
+    # --- Notion last page ---
+    notion_url = cfg.get("notion_last_tlu_page_url", "")
+    notion_page_id = parse_notion_page_id(notion_url) if notion_url else ""
+
+    local_path = tlu_local_path(notes_path or "", week_end) if notes_path else ""
+
+    # Load TLU template from repo
+    template_path = os.path.join(PROJECT_DIR, "templates", "tlu-template.md")
+    tlu_template = ""
+    if os.path.exists(template_path):
+        with open(template_path) as f:
+            tlu_template = f.read()
+    else:
+        log.warning(f"[tlu] TLU template not found at {template_path}")
+
+    prompt = f"""You are {aitpm_name} for {project_name}. Generate the weekly Traffic Light Update (TLU) for the week of {week_start} to {week_end}.
+
+## Context
+- Project: {project_name}
+- Week: {week_start} (Monday) to {week_end} (Friday)
+- Current time (UTC): {now}
+{f"- {sprint_info}" if sprint_info else ""}
+
+## TLU Writing Template
+Follow this template exactly for format, structure, voice, and rules:
+
+{tlu_template if tlu_template else "(template not found — use standard TLU format: Where We Are, Achievements, Risks, Blockers)"}
+
+## Jira Ticket States (from last monitor run)
+{ticket_states}
+
+## Meeting Notes for This Week
+{meeting_notes_content if meeting_notes_content else "(no meeting notes found for this week)"}
+
+## Format Reference (last 2 TLUs — match this style exactly)
+{format_reference if format_reference else "(no existing TLUs found)"}
+
+## Instructions
+
+All context you need is provided above. Do NOT read files or explore the filesystem — use only the Jira state, meeting notes, and format reference provided in this prompt.
+
+### Step 1 — Generate TLU content
+Use the TLU Writing Template above to write the four sections (Where We Are, Achievements, Risks, Blockers).
+Use 🟢 Green / 🟡 Yellow / 🔴 Red status at the top based on the evidence.
+
+### Step 2 — Write local TLU file
+Write the complete TLU markdown to this exact path:
+{local_path}
+
+Include frontmatter:
+---
+project: "{project_name}"
+week_ending: "{week_end}"
+---
+
+### Step 3 — Write output file
+The Notion TLU page ID is already known from config — no search needed.
+Write this JSON to: {output_file}
+{{
+  "week_start": "{week_start}",
+  "week_end": "{week_end}",
+  "local_path": "{local_path}",
+  "notion_tlu_page_id": "{notion_page_id}",
+  "notion_search_failed": false
+}}
+"""
+
+    await _run(prompt, _TLU_GENERATION_TOOLS, model="sonnet", max_turns=30, label="tlu-generation")
+
+    if not os.path.exists(output_file):
+        log.error("[tlu] Agent did not write tlu_output.json")
+        return None
+
+    with open(output_file) as f:
+        result = json.load(f)
+    os.remove(output_file)
+
+    # Build pending_tlu state structure
+    pending_tlu = {
+        "week_start": result.get("week_start", str(week_start)),
+        "week_end": result.get("week_end", str(week_end)),
+        "local_path": result.get("local_path", local_path),
+        "notion_page_id": result.get("notion_tlu_page_id", ""),
+        "notion_search_failed": result.get("notion_search_failed", False),
+        "sections": {
+            "where_we_are": {"status": "pending", "slack_ts": None},
+            "achievements":  {"status": "pending", "slack_ts": None},
+            "risks":         {"status": "pending", "slack_ts": None},
+        },
+    }
+    return pending_tlu
+
+
+async def run_tlu_notion_push(
+    cfg: dict,
+    state: dict,
+    section_key: str,
+    notion_page_id: str,
+    local_path: str,
+) -> bool:
+    """Push a TLU section to the corresponding Notion TLU page.
+
+    Reads section content from local_path, updates the Notion page block.
+    Returns True on success.
+    """
+    aitpm_name = cfg.get("aitpm_name", "AI TPM")
+    project_name = cfg.get("project_name", "the project")
+    output_file = os.path.join(PROJECT_DIR, "state", "tlu_push_output.json")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if os.path.exists(output_file):
+        os.remove(output_file)
+
+    section_content = extract_tlu_section(local_path, section_key)
+    section_heading = _SECTION_HEADINGS.get(section_key, section_key)
+
+    if not section_content:
+        log.error(f"[tlu-push] Could not extract section '{section_key}' from {local_path}")
+        return False
+
+    prompt = f"""You are {aitpm_name} for {project_name}. Push the approved TLU section to the Notion TLU page.
+
+## Task
+Push the "{section_heading}" section content to the Notion page with ID: {notion_page_id}
+
+## Section content to push
+{section_content}
+
+## Instructions
+1. Fetch the Notion page to understand its current block structure:
+   mcp__claude_ai_Notion__notion-fetch with page_id="{notion_page_id}"
+
+2. Find the block that corresponds to "{section_heading}":
+   - Look for a heading block or section with matching text
+   - The content should go into or after that block
+
+3. Update the page with the section content using:
+   mcp__claude_ai_Notion__notion-update-page
+
+4. Write result to {output_file}:
+{{
+  "success": true,
+  "section": "{section_key}",
+  "notion_page_id": "{notion_page_id}"
+}}
+
+If the update fails, write:
+{{
+  "success": false,
+  "section": "{section_key}",
+  "error": "<brief description>"
+}}
+
+## Rules
+- No em dashes
+- Push the content as-is — do not rewrite or summarize
+"""
+
+    await _run(prompt, _TLU_NOTION_PUSH_TOOLS, model="sonnet", max_turns=15, label="tlu-notion-push")
+
+    if not os.path.exists(output_file):
+        log.error("[tlu-push] Agent did not write tlu_push_output.json")
+        return False
+
+    with open(output_file) as f:
+        result = json.load(f)
+    os.remove(output_file)
+    return result.get("success", False)
+
+
 def run_monitor_sync(cfg: dict, state: dict, run_type: str = "monitor", epic_cache: list | None = None, child_tickets: list | None = None, is_full_fetch: bool = True) -> None:
     asyncio.run(run_monitor(cfg, state, run_type, epic_cache=epic_cache, child_tickets=child_tickets, is_full_fetch=is_full_fetch))
 
@@ -662,9 +980,33 @@ def run_revision_sync(cfg: dict, original_draft: str, feedback: str, context: st
     return asyncio.run(run_revision(cfg, original_draft, feedback, context))
 
 
+def run_tlu_revision_sync(
+    cfg: dict,
+    state: dict,
+    section_key: str,
+    original_section: str,
+    feedback: str,
+) -> str | None:
+    return asyncio.run(run_tlu_revision(cfg, state, section_key, original_section, feedback))
+
+
 def run_command_sync(cfg: dict, state: dict, command_text: str) -> dict | None:
     return asyncio.run(run_command(cfg, state, command_text))
 
 
 def run_jira_comment_sync(ticket_key: str, comment_text: str, user_map: dict | None = None) -> bool:
     return asyncio.run(run_jira_comment(ticket_key, comment_text, user_map))
+
+
+def run_tlu_generation_sync(cfg: dict, state: dict, week_start: date, week_end: date) -> dict | None:
+    return asyncio.run(run_tlu_generation(cfg, state, week_start, week_end))
+
+
+def run_tlu_notion_push_sync(
+    cfg: dict,
+    state: dict,
+    section_key: str,
+    notion_page_id: str,
+    local_path: str,
+) -> bool:
+    return asyncio.run(run_tlu_notion_push(cfg, state, section_key, notion_page_id, local_path))

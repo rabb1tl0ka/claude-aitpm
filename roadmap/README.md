@@ -21,14 +21,23 @@ For `idea-` and `challenge-` files, contributions can be a PR that evolves the f
 
 ## Current roadmap
 
-| File | Type | Summary |
-|---|---|---|
-| [feat-team-aitpm.md](feat-team-aitpm.md) | Feature | Expose the bot to the full team on Slack with rate limiting and TPM approval gate |
-| [idea-on-demand-digest.md](idea-on-demand-digest.md) | Idea | Replace scheduled 8AM digest with on-demand `@aitpm digest` command |
-| [idea-deduplicate-alerts.md](idea-deduplicate-alerts.md) | Idea | Skip re-alerting on tickets already in pending_drafts to reduce Slack noise |
-| [idea-reply-to-any-alert.md](idea-reply-to-any-alert.md) | Idea | Turn every bot message into an actionable thread — reply with free-form instructions |
-| [idea-team-query-cache.md](idea-team-query-cache.md) | Idea | Cache team @aitpm responses to avoid redundant agent runs |
-| [challenge-slack-mcp-unavailable-in-subagents.md](challenge-slack-mcp-unavailable-in-subagents.md) | Challenge | Slack MCP not accessible in SDK subagents — nudges drafted from Jira context only |
+| File | Status | Priority | Owner | One-Line Overview |
+|---|---|---|---|---|
+| [feat-team-aitpm.md](feat-team-aitpm.md) | ⏳ todo | high | | Expose the AI TPM to the full team via Slack so anyone can query project status, feature context, and sprint state — with write operations held for Bruno's approval. |
+| [feat-tlu-generation.md](feat-tlu-generation.md) | ✅ done | high | @rabb1tl0ka | Enable the AI TPM to generate weekly Traffic Light Updates on demand, pulling Jira + meeting notes, posting sections to Slack for approval, then pushing to Notion. |
+| [challenge-slack-mcp-unavailable-in-subagents.md](challenge-slack-mcp-unavailable-in-subagents.md) | ⏳ todo | high | | Identify why Slack MCP tools are inaccessible in SDK subagents and find a path to giving them Slack context for higher-quality nudges. |
+| [idea-deduplicate-alerts.md](idea-deduplicate-alerts.md) | ⏳ todo | medium | | Prevent duplicate alerts from firing on every fetch run by checking pending_drafts before generating new alerts for the same ticket. |
+| [idea-on-demand-digest.md](idea-on-demand-digest.md) | ⏳ todo | medium | | Replace the scheduled 8AM digest with an on-demand `@aitpm digest` command to eliminate unnecessary token burns and deliver the digest when actually needed. |
+| [idea-per-config-state.md](idea-per-config-state.md) | ⏳ todo | medium | | Split the shared state.json into per-config files to eliminate cross-project state collisions as AI TPM expands to multiple projects. |
+| [idea-reply-to-any-alert.md](idea-reply-to-any-alert.md) | ⏳ todo | medium | | Make every bot-posted Slack message an actionable thread so Bruno can reply with free-form instructions without needing @aitpm syntax. |
+| [idea-tlu-regen-cancel.md](idea-tlu-regen-cancel.md) | ⏳ todo | medium | | Allow cancelling an in-progress TLU and regenerating without manually editing state.json, by detecting regen intent and offering a cancel+regen flow. |
+| [idea-tlu-slack-context.md](idea-tlu-slack-context.md) | ⏳ todo | medium | | Enrich TLU generation by injecting the past week's Slack channel history alongside Jira state and meeting notes, capturing decisions that never make it into Jira. |
+| [challenge-claude-sdk-session-resumption.md](challenge-claude-sdk-session-resumption.md) | ⏳ todo | medium | | Determine whether the Claude Code SDK supports session resumption so TLU revision agents can maintain cross-section consistency after partial approvals. |
+| [challenge-orphaned-slack-drafts.md](challenge-orphaned-slack-drafts.md) | ⏳ todo | medium | | Solve Slack draft messages becoming orphaned after state resets, causing silent failures or confusion when Bruno tries to approve them. |
+| [idea-per-agent-model-config.md](idea-per-agent-model-config.md) | ⏳ todo | low | | Let users override the Claude model per agent in the project config YAML, eliminating hardcoded model selections in source code. |
+| [idea-team-query-cache.md](idea-team-query-cache.md) | ⏳ todo | low | | Cache team query responses by normalized prompt to avoid redundant agent runs when multiple people ask similar questions. |
+
+*(The table above is automatically maintained by Claude Code. Do not edit it manually.)*
 
 ## Archived
 

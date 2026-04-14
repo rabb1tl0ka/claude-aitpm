@@ -1,4 +1,13 @@
+---
+status: todo
+priority: medium
+owner: ""
+---
+
 # Idea: On-demand digest instead of scheduled 8AM run
+
+## One-Line Overview
+Replace the scheduled 8AM digest with an on-demand `@aitpm digest` command to eliminate unnecessary token burns and deliver the digest when actually needed.
 
 ## What's the idea
 

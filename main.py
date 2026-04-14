@@ -24,7 +24,8 @@ load_dotenv()
 
 from src.config import load_config, get_project_dir
 from src.state import load_state, save_state, update_slack_cursors, load_epic_cache, save_epic_cache, fetch_epic_keys, fetch_child_tickets, tickets_to_states
-from src.agents import run_monitor_sync, run_nudge_drafter_sync, run_revision_sync, run_command_sync, run_jira_comment_sync
+from src.agents import run_monitor_sync, run_nudge_drafter_sync, run_revision_sync, run_command_sync, run_jira_comment_sync, run_tlu_generation_sync, run_tlu_notion_push_sync, run_tlu_revision_sync
+from src.tlu import detect_tlu_intent, parse_week, next_pending_section, _SECTION_HEADINGS, is_state_fresh
 from src.slack_client import (
     post_message, add_reaction, get_channel_history,
     get_thread_replies, get_message_reactions, is_bot_message, is_bot_mention, detect_intent,
@@ -182,6 +183,138 @@ def run_monitor(cfg: dict, state: dict, run_type: str, log: logging.Logger, refr
 
 
 # ---------------------------------------------------------------------------
+# TLU helpers
+# ---------------------------------------------------------------------------
+
+def _load_tlu_template() -> str:
+    """Load TLU writing template from repo. Returns empty string if not found."""
+    template_path = os.path.join(get_project_dir(), "templates", "tlu-template.md")
+    if os.path.exists(template_path):
+        with open(template_path) as f:
+            return f.read()
+    return ""
+
+
+def _post_tlu_section(cfg: dict, state: dict, section_key: str, log: logging.Logger) -> None:
+    """Post the next TLU section to Slack as a pending draft for approval."""
+    pending_tlu = state.get("pending_tlu")
+    if not pending_tlu:
+        return
+    project_dir = get_project_dir()
+    aitpm_channel = cfg["slack_aitpm_channel"]
+    local_path = pending_tlu["local_path"]
+    week_start = pending_tlu["week_start"]
+    week_end = pending_tlu["week_end"]
+
+    from src.tlu import extract_tlu_section, _SECTION_HEADINGS
+    section_content = extract_tlu_section(local_path, section_key)
+    if not section_content:
+        post_message(aitpm_channel, f"⚠️ Could not read section '{section_key}' from {local_path}")
+        return
+
+    heading = _SECTION_HEADINGS.get(section_key, section_key)
+    slack_ts = post_message(
+        aitpm_channel,
+        f"TLU {week_start} to {week_end} — {heading} (react ✅ to approve, or reply to edit):\n\n{section_content}",
+    )
+    if not slack_ts:
+        log.error(f"[tlu] Failed to post section '{section_key}' to Slack")
+        return
+
+    pending_tlu["sections"][section_key]["slack_ts"] = slack_ts
+
+    draft = {
+        "type": "tlu_section",
+        "action": "notion_push",
+        "tlu_section_key": section_key,
+        "draft_text": section_content,
+        "context": f"TLU {week_start} to {week_end} — {heading}",
+        "status": "pending",
+        "slack_ts": slack_ts,
+    }
+    state.setdefault("pending_drafts", []).append(draft)
+    save_state(project_dir, state)
+    log.info(f"[tlu] Posted section '{section_key}' to Slack for approval")
+
+
+def _handle_tlu_section_approval(
+    cfg: dict,
+    state: dict,
+    draft: dict,
+    aitpm_channel: str,
+    slack_ts: str,
+    log: logging.Logger,
+) -> bool:
+    """Push approved TLU section to Notion. Post completion message when all sections are done.
+
+    Returns True on success (caller should mark draft as sent and add ✅ reaction).
+    Returns False on failure (caller must NOT mark draft as sent — keeps it open for retry).
+    """
+    project_dir = get_project_dir()
+    section_key = draft.get("tlu_section_key")
+    pending_tlu = state.get("pending_tlu")
+
+    if not pending_tlu or not section_key:
+        post_message(aitpm_channel, "⚠️ TLU state missing — cannot push to Notion.", thread_ts=slack_ts)
+        return False
+
+    # Always derive from config — never trust the cached value in state
+    from src.config import parse_notion_page_id
+    notion_url = cfg.get("notion_last_tlu_page_url", "")
+    notion_page_id = parse_notion_page_id(notion_url) if notion_url else ""
+    local_path = pending_tlu["local_path"]
+
+    if not notion_page_id:
+        # Notion not configured — skip push, mark as approved locally
+        post_message(aitpm_channel, f"✅ Approved.", thread_ts=slack_ts)
+        pending_tlu["sections"][section_key]["status"] = "pushed"
+    else:
+        success = run_tlu_notion_push_sync(cfg, state, section_key, notion_page_id, local_path)
+        if not success:
+            post_message(aitpm_channel, f"⚠️ Notion push failed for '{section_key}'. Reply 'try again' to retry.", thread_ts=slack_ts)
+            return False
+        post_message(aitpm_channel, f"✅ Pushed to Notion: {_SECTION_HEADINGS.get(section_key, section_key)}", thread_ts=slack_ts)
+        pending_tlu["sections"][section_key]["status"] = "pushed"
+
+    save_state(project_dir, state)
+
+    # Post completion message only when all sections are pushed
+    all_pushed = all(
+        s.get("status") == "pushed"
+        for s in pending_tlu["sections"].values()
+    )
+    if all_pushed:
+        week_start = pending_tlu.get("week_start", "?")
+        week_end = pending_tlu.get("week_end", "?")
+        post_message(aitpm_channel, f"TLU for week of {week_start} fully published to Notion.")
+        state["pending_tlu"] = None
+        save_state(project_dir, state)
+        log.info("[tlu] All sections pushed. TLU complete.")
+
+    return True
+
+
+def _update_notion_url_in_config(cfg: dict, notion_page_id: str, log: logging.Logger) -> None:
+    """Update notion_last_tlu_page_url in the config YAML file."""
+    import yaml
+    config_name = cfg.get("_config_name", "cloudsort")
+    config_path = os.path.join(get_project_dir(), "configs", f"{config_name}.yaml")
+    if not os.path.isfile(config_path):
+        return
+    try:
+        with open(config_path) as f:
+            raw = yaml.safe_load(f)
+        current_url = raw.get("notion_last_tlu_page_url", "")
+        # Reconstruct URL from page ID (use a generic notion.so URL)
+        # We only update if we have a meaningful page ID
+        if notion_page_id and notion_page_id not in current_url:
+            # Keep the existing URL structure but can't reconstruct the slug — log for manual update
+            log.info(f"[tlu] Notion page ID for this TLU: {notion_page_id} — update notion_last_tlu_page_url manually if needed")
+    except Exception as e:
+        log.warning(f"[tlu] Could not update config notion URL: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Approval poll: check threads for the TPM's replies
 # ---------------------------------------------------------------------------
 
@@ -202,8 +335,71 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
         if not slack_ts:
             continue
 
-        # Check for ✅ reaction approval first
         tpm_id = cfg.get("tpm_slack_user_id", "")
+
+        post_type = draft.get("type", "draft")
+
+        # TLU sections are fully self-contained — replies always win over reactions,
+        # and the bot never adds ✅ reactions to its own TLU messages.
+        if post_type == "tlu_section":
+            replies = get_thread_replies(aitpm_channel, slack_ts)
+            tpm_replies = [r for r in replies[1:] if not is_bot_message(r)]
+            if tpm_id:
+                tpm_replies = [r for r in tpm_replies if r.get("user") == tpm_id]
+            last_seen = draft.get("last_reply_ts") or "0"
+            new_replies = [r for r in tpm_replies if r.get("ts", "0") > last_seen]
+
+            if new_replies:
+                latest_reply = new_replies[-1]
+                reply_text = latest_reply.get("text", "")
+                intent = detect_intent(reply_text)
+                log.info(f"[poll] TLU reply ({intent}): {reply_text[:80]}")
+
+                if intent == "approve":
+                    tlu_ok = _handle_tlu_section_approval(cfg, state, draft, aitpm_channel, slack_ts, log)
+                    if tlu_ok:
+                        draft["status"] = "sent"
+                    else:
+                        draft["last_reply_ts"] = latest_reply.get("ts")
+                elif intent == "edit":
+                    section_key = draft.get("tlu_section_key", "")
+                    revised = run_tlu_revision_sync(cfg, state, section_key, draft["draft_text"], reply_text)
+                    if revised:
+                        post_message(aitpm_channel, f"Revised draft:\n\n{revised}", thread_ts=slack_ts)
+                        draft["draft_text"] = revised
+                    draft["last_reply_ts"] = latest_reply.get("ts")
+                else:  # command or question — reason about it, reply in thread
+                    tlu_template = _load_tlu_template()
+                    context = (
+                        f"Context: {draft.get('context', '')}\n\n"
+                        f"Original TLU section:\n{draft['draft_text']}\n\n"
+                        f"TLU WRITING TEMPLATE — follow strictly when reasoning or suggesting edits:\n"
+                        f"{tlu_template}"
+                    )
+                    result = run_command_sync(cfg, state, f"{reply_text}\n\n{context}")
+                    if result and result.get("response"):
+                        post_message(aitpm_channel, result["response"], thread_ts=slack_ts)
+                    draft["last_reply_ts"] = latest_reply.get("ts")
+
+                changed = True
+                continue
+
+            # No new replies — check ✅ reaction (only if tpm_id is set to avoid bot's own reaction)
+            if tpm_id:
+                reactions = get_message_reactions(aitpm_channel, slack_ts)
+                reacted_approve = any(
+                    r["name"] == "white_check_mark" and tpm_id in r.get("users", [])
+                    for r in reactions
+                )
+                if reacted_approve:
+                    log.info(f"[poll] TLU reaction approval: {draft.get('context', slack_ts)}")
+                    tlu_ok = _handle_tlu_section_approval(cfg, state, draft, aitpm_channel, slack_ts, log)
+                    if tlu_ok:
+                        draft["status"] = "sent"
+                    changed = True
+            continue  # always continue — never fall through to non-TLU handling
+
+        # Check for ✅ reaction approval first (non-TLU drafts)
         reactions = get_message_reactions(aitpm_channel, slack_ts)
         reacted_approve = any(
             r["name"] == "white_check_mark" and (not tpm_id or tpm_id in r.get("users", []))
@@ -213,7 +409,12 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
             log.info(f"[poll] Reaction approval detected for: {draft.get('context', slack_ts)}")
             action = draft.get("action", "slack")
             target = draft.get("target_channel")
-            if action == "jira_comment":
+            if action == "notion_push":
+                tlu_ok = _handle_tlu_section_approval(cfg, state, draft, aitpm_channel, slack_ts, log)
+                if not tlu_ok:
+                    changed = True  # save last_reply_ts updates but do NOT mark sent
+                    continue
+            elif action == "jira_comment":
                 ticket_key = draft.get("ticket_key")
                 comment_text = draft["draft_text"]
                 if "Proposed comment:" in comment_text:
@@ -252,8 +453,6 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
         reply_text = latest_reply.get("text", "")
         intent = detect_intent(reply_text)
 
-        post_type = draft.get("type", "draft")
-
         # Alert replies are always treated as commands regardless of phrasing
         if post_type == "alert":
             log.info(f"[poll] Alert reply detected: {reply_text[:80]}")
@@ -267,7 +466,13 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
         elif intent == "approve":
             action = draft.get("action", "slack")
             target = draft.get("target_channel")
-            if action == "jira_comment":
+            if action == "notion_push":
+                tlu_ok = _handle_tlu_section_approval(cfg, state, draft, aitpm_channel, slack_ts, log)
+                if not tlu_ok:
+                    draft["last_reply_ts"] = latest_reply.get("ts")
+                    changed = True  # save state but do NOT mark sent
+                    continue
+            elif action == "jira_comment":
                 ticket_key = draft.get("ticket_key")
                 # Extract the actual comment text — strip the header block the TPM saw
                 comment_text = draft["draft_text"]
@@ -317,6 +522,67 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
 
 
 # ---------------------------------------------------------------------------
+# TLU command handler
+# ---------------------------------------------------------------------------
+
+def _run_tlu_command(
+    cfg: dict,
+    state: dict,
+    command_text: str,
+    aitpm_channel: str,
+    msg_ts: str,
+    log: logging.Logger,
+) -> None:
+    """Handle a TLU generation command from inbound check."""
+    project_dir = get_project_dir()
+
+    # Guard: TLU already in progress
+    if state.get("pending_tlu"):
+        post_message(aitpm_channel, "A TLU is already in progress. Approve or reject the pending sections first.", thread_ts=msg_ts)
+        return
+
+    # Parse target week
+    week_start, week_end = parse_week(command_text)
+    log.info(f"[tlu] Generating TLU for {week_start} to {week_end}")
+    post_message(aitpm_channel, f"Generating TLU for week of {week_start} to {week_end}...", thread_ts=msg_ts)
+
+    # Refresh Jira state if stale
+    if not is_state_fresh(state):
+        log.info("[tlu] State stale — running monitor before TLU generation")
+        post_message(aitpm_channel, "Jira state is stale — refreshing before generating TLU...", thread_ts=msg_ts)
+        from src.state import load_epic_cache, fetch_child_tickets, tickets_to_states
+        epic_cache = load_epic_cache(project_dir)
+        if epic_cache:
+            child_tickets = fetch_child_tickets(epic_cache, is_full_fetch=True)
+            state["ticket_states"] = tickets_to_states(child_tickets)
+            from datetime import timezone
+            state["last_monitor_run"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            save_state(project_dir, state)
+
+    # Generate TLU
+    pending_tlu = run_tlu_generation_sync(cfg, state, week_start, week_end)
+    if not pending_tlu:
+        post_message(aitpm_channel, "TLU generation failed. Check logs.", thread_ts=msg_ts)
+        return
+
+    state["pending_tlu"] = pending_tlu
+    save_state(project_dir, state)
+
+    # Surface Notion search failure if it happened
+    if pending_tlu.get("notion_search_failed"):
+        post_message(
+            aitpm_channel,
+            f"⚠️ Couldn't find Notion TLU page for week of {week_end}. Sections will be posted for review but Notion push will be skipped until you update notion_last_tlu_page_url in config.",
+            thread_ts=msg_ts,
+        )
+
+    # Post all sections at once — each is an independent pending draft
+    from src.tlu import _SECTION_ORDER
+    for section_key in _SECTION_ORDER:
+        _post_tlu_section(cfg, state, section_key, log)
+
+
+# ---------------------------------------------------------------------------
 # Inbound check: scan #cloudsort_aitpm for @aitpm commands
 # ---------------------------------------------------------------------------
 
@@ -351,6 +617,11 @@ def run_inbound_check(cfg: dict, state: dict, log: logging.Logger) -> None:
         command_text = msg["text"]
         msg_ts = msg["ts"]
         log.info(f"[inbound] Command: {command_text[:80]}")
+
+        # TLU generation — route before run_command
+        if detect_tlu_intent(command_text):
+            _run_tlu_command(cfg, state, command_text, aitpm_channel, msg_ts, log)
+            continue
 
         result = run_command_sync(cfg, state, command_text)
         if not result:
@@ -412,6 +683,7 @@ def main():
 
     log = setup_logging()
     cfg = load_config(args.config)
+    cfg["_config_name"] = args.config  # used by _update_notion_url_in_config
     project_dir = get_project_dir()
 
     log.info(f"=== Claude AITPM — {cfg['project_name']} ===")

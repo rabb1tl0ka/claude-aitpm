@@ -1,4 +1,13 @@
+---
+status: todo
+priority: high
+owner: ""
+---
+
 # Feature Spec: Team AI TPM
+
+## One-Line Overview
+Expose the AI TPM to the full team via Slack so anyone can query project status, feature context, and sprint state — with write operations held for Bruno's approval.
 
 ## Branch
 
