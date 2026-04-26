@@ -76,6 +76,30 @@ When a user asks to create a `docs/` directory for a flat item, auto-promote it:
 
 Read the relevant file in full before starting — branch name, implementation steps, test plan, and open questions are all in there. Present a plan and wait for explicit approval before writing any code.
 
+### How to execute a roadmap item
+
+The same loop applies whether implementing a feature or fixing a bug. The starting point differs; the loop doesn't.
+
+**For features:** the spec defines what "done" looks like — use it as your north star.  
+**For bugs:** start by reproducing the bug — that *is* your first test. It must fail before you fix anything.
+
+1. **Plan** — read the spec in full, then present a step-by-step implementation plan and wait for explicit approval before writing any code.
+
+2. **Test each step as you go**
+   - After each significant step, run the smallest test that confirms it worked
+   - What files should exist? → `ls`, `find`
+   - What should be in them? → `grep`, `Read`
+   - What commands should work? → run them
+   - What behavior should change? → test before and after
+
+3. **When a test fails**
+   - 3.1 Find what's wrong in the code, fix it, run the test again
+   - 3.2 If a test keeps failing after genuine attempts — question the test itself. A broken test is still a bug.
+
+4. **E2E at the end** — once every step passes, test the full feature end-to-end. Individual steps working is not the same as the goal being achieved.
+
+**Ambiguity is fragility:** when in doubt about requirements or intent — don't assume, ask.
+
 ### When asked to archive an item
 
 When marking an item as done or explicitly archiving:
