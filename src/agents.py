@@ -564,6 +564,19 @@ Respond as you would in a full Claude Code session — you have complete project
   "draft_target_channel": "<team channel if draft_for_team is set, else null>"
 }}
 
+## JIRA Label Convention
+When creating JIRA issues, always apply labels via `additional_fields`:
+- Add `"Jailbreak"` for any JailBreak/CloudSort Exchange task
+- Add `"WEB"` for frontend/web tasks
+- Add `"BE"` for backend tasks
+- Add `"DESIGN"` for design tasks
+Combine as needed (e.g. `{"labels": ["Jailbreak", "WEB"]}` for an Exchange web task).
+
+Always auto-assign to the discipline lead unless told otherwise:
+- DESIGN: Gorjan Ivanovski (`712020:e7af773c-0e40-4844-9a8c-108092b90668`)
+- BE: Luis Carvalho (`712020:3a1973e4-b239-47cc-82de-eb0a133905c2`)
+- WEB: Zoran Grbusic (`5bb78e559ba2930990f81b6b`)
+
 ## Rules
 - Direct and concise
 - No em dashes
