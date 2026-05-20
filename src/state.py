@@ -28,6 +28,7 @@ def load_state(project_dir: str) -> dict:
         "pending_drafts": [],
         "ticket_states": {},
         "slack_cursors": {},
+        "active_threads": [],
         "user_map": {
             "Zoran Grbusic": "5bb78e559ba2930990f81b6b",
             "elena.gramatikovska": "633846019b32cfef93282f21",

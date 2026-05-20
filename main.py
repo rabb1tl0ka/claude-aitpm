@@ -15,7 +15,7 @@ import logging
 import os
 import time
 import uuid
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 from zoneinfo import ZoneInfo  # kept for digest date tracking
 
 from dotenv import load_dotenv
@@ -515,6 +515,37 @@ def run_approval_poll(cfg: dict, state: dict, log: logging.Logger) -> None:
                 log.warning("[poll] Revision agent returned no output.")
             changed = True
 
+    # Check active command threads for @aitpm follow-up mentions
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    fresh_threads = []
+    active_tpm_id = cfg.get("tpm_slack_user_id", "")
+    for thread in state.get("active_threads", []):
+        try:
+            if datetime.fromisoformat(thread.get("posted_at", "").replace("Z", "+00:00")) < cutoff:
+                continue  # prune threads older than 7 days
+        except Exception:
+            pass
+        fresh_threads.append(thread)
+        ts = thread["slack_ts"]
+        replies = get_thread_replies(aitpm_channel, ts)
+        user_replies = [r for r in replies[1:] if not is_bot_message(r)]
+        if active_tpm_id:
+            user_replies = [r for r in user_replies if r.get("user") == active_tpm_id]
+        last_seen = thread.get("last_reply_ts") or "0"
+        new_mentions = [
+            r for r in user_replies
+            if r.get("ts", "0") > last_seen and is_bot_mention(r.get("text", ""))
+        ]
+        for reply in new_mentions:
+            reply_text = reply.get("text", "")
+            log.info(f"[poll] Thread @mention: {reply_text[:80]}")
+            result = run_command_sync(cfg, state, reply_text)
+            if result and result.get("response"):
+                post_message(aitpm_channel, result["response"], thread_ts=ts)
+            thread["last_reply_ts"] = reply.get("ts")
+            changed = True
+    state["active_threads"] = fresh_threads
+
     if changed:
         # Remove sent drafts
         state["pending_drafts"] = [d for d in pending if d.get("status") != "sent"]
@@ -632,6 +663,15 @@ def run_inbound_check(cfg: dict, state: dict, log: logging.Logger) -> None:
         response = result.get("response", "Done.")
         post_message(aitpm_channel, response, thread_ts=msg_ts)
 
+        # Track thread so follow-up @aitpm mentions get picked up by approval poll
+        active_threads = state.setdefault("active_threads", [])
+        if not any(t["slack_ts"] == msg_ts for t in active_threads):
+            active_threads.append({
+                "slack_ts": msg_ts,
+                "last_reply_ts": msg_ts,
+                "posted_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            })
+
         # If agent also wants to draft a team message, add it as a pending draft
         team_draft = result.get("draft_for_team")
         if team_draft:
@@ -647,7 +687,7 @@ def run_inbound_check(cfg: dict, state: dict, log: logging.Logger) -> None:
                 "status": "pending",
                 "last_reply_ts": None,
             })
-            save_state(project_dir, state)
+        save_state(project_dir, state)
 
 
 # ---------------------------------------------------------------------------
