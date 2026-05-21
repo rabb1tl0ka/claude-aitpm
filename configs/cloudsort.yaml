@@ -41,8 +41,8 @@ sprint:
   end: ""
 
 schedule:
-  monitor_interval_min: 5
-  approval_interval_min: 1
+  monitor_interval_min: 1
+  approval_interval_min: 0.1
   timezone: "Europe/Lisbon"
   work_hours_start: 8
   work_hours_end: 21

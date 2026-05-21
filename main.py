@@ -778,7 +778,7 @@ def main():
                 run_inbound_check(cfg, state, log)
                 last_poll_run = now
 
-            time.sleep(30)
+            time.sleep(min(approval_interval_min * 60, 30))
 
     except KeyboardInterrupt:
         log.info("AITPM stopped.")

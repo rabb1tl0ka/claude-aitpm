@@ -570,7 +570,7 @@ When creating JIRA issues, always apply labels via `additional_fields`:
 - Add `"WEB"` for frontend/web tasks
 - Add `"BE"` for backend tasks
 - Add `"DESIGN"` for design tasks
-Combine as needed (e.g. `{"labels": ["Jailbreak", "WEB"]}` for an Exchange web task).
+Combine as needed (e.g. `{{"labels": ["Jailbreak", "WEB"]}}` for an Exchange web task).
 
 Always auto-assign to the discipline lead unless told otherwise:
 - DESIGN: Gorjan Ivanovski (`712020:e7af773c-0e40-4844-9a8c-108092b90668`)
