@@ -174,6 +174,63 @@ The bot reads the radar file defined in `jira_radar_file`. It runs the Step 1 JQ
 ## Architecture
 
 ```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              AI TPM                                         │
+│                                                                             │
+│  ┌──────────────────────────────────────────────────────┐                   │
+│  │  main.py (Python Orchestrator)                       │                   │
+│  │                                                      │                   │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐  │                   │
+│  │  │  Scheduler  │  │ Approval    │  │  Inbound     │  │                   │
+│  │  │  hourly +   │  │ Poll        │  │  Check       │  │                   │
+│  │  │  8AM digest │  │ (every 3m)  │  │  @aitpm cmds │  │                   │
+│  │  └──────┬──────┘  └──────┬──────┘  └──────┬───────┘  │                   │
+│  │         │                │                 │         │                   │
+│  │         ▼                ▼                 ▼         │                   │
+│  │  ┌─────────────────────────────────────────────────┐ │                   │
+│  │  │              State (state/*.json)               │ │                   │
+│  │  │  ticket_states · pending_drafts · user_map      │ │                   │
+│  │  │  epic_cache · slack_cursors · active_threads    │ │                   │
+│  │  └─────────────────────────────────────────────────┘ │                   │
+│  └──────────────────────────────────────────────────────┘                   │
+│                    │                                                        │
+│         spawns agents via Claude SDK                                        │
+│                    │                                                        │
+│       ┌────────────┼───────────────────────┐                                │
+│       ▼            ▼                       ▼                                │
+│  ┌─────────┐  ┌──────────┐  ┌──────────────────────┐                        │
+│  │ Monitor │  │  Nudge   │  │  Command / Revision  │                        │
+│  │ Agent   │  │ Drafter  │  │  TLU Generation /    │                        │
+│  │ (Haiku/ │  │ (Sonnet) │  │  Notion Push agents  │                        │
+│  │ Sonnet) │  │          │  │  (Haiku / Sonnet)    │                        │
+│  └────┬────┘  └────┬─────┘  └──────────────────────┘                        │
+│       │            │                                                        │
+└───────┼────────────┼────────────────────────────────────────────────────────┘
+        │            │
+        │ MCP        │ MCP + filesystem
+        ▼            ▼
+┌──────────┐  ┌────────────┐  ┌──────────┐  ┌──────────────────┐
+│  JIRA    │  │  2nd Brain │  │  Notion  │  │  Slack (MCP)     │
+│          │  │  Vault     │  │  (TLU    │  │  (nudge drafter  │
+│  (Python │  │  (feature  │  │  pages)  │  │  reads channels) │
+│  REST +  │  │  notes +   │  │          │  │                  │
+│  MCP for │  │  meeting   │  │          │  │                  │
+│  agents) │  │  notes)    │  │          │  │                  │
+└──────────┘  └────────────┘  └──────────┘  └──────────────────┘
+
+              ▲                                       ▲
+              │                                       │
+         ┌────┴────────────────────────────────────────────┐
+         │                   Slack                         │
+         │   #aitpm-channel: alerts + drafts + approvals   │
+         └───────────────────────────────────────────────┬─┘
+                                                         │
+                                                      [TPM]
+```
+
+File layout:
+
+```
 main.py             - scheduler loop, approval poll, inbound check
 src/agents.py       - Claude agent prompts (monitor, command, revision, jira comment, nudge drafter)
 src/slack_client.py - all Slack I/O
